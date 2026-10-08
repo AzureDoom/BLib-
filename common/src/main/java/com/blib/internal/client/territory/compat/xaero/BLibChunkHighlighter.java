@@ -95,6 +95,10 @@ public class BLibChunkHighlighter extends ChunkHighlighter {
 
     @Override
     public boolean regionHasHighlights(ResourceKey<Level> dimension, int regionX, int regionZ) {
+        // ⚠ Aug 28 — the blibClaimMapOverlay gamerule, synced to the client, gates the whole overlay here.
+        if (!com.blib.internal.client.territory.BLibClaimHud.isClaimMapOverlayEnabled()) {
+            return false;
+        }
         var cache = ClientTerritoryCache.INSTANCE;
         var dimensionId = dimension.location();
         var startX = regionX * 32;
@@ -113,6 +117,9 @@ public class BLibChunkHighlighter extends ChunkHighlighter {
 
     @Override
     public boolean chunkIsHighlit(ResourceKey<Level> dimension, int x, int z) {
+        if (!com.blib.internal.client.territory.BLibClaimHud.isClaimMapOverlayEnabled()) {
+            return false;
+        }
         return ClientTerritoryCache.INSTANCE.isClaimed(dimension.location(), new ChunkPos(x, z));
     }
 
@@ -338,11 +345,28 @@ public class BLibChunkHighlighter extends ChunkHighlighter {
         return ResourceLocation.fromNamespaceAndPath(texture.getNamespace(), "textures/" + path + ".png");
     }
 
+    /**
+     * How much of a claim overlay texture's own opacity survives onto the map.
+     * <p>
+     * ⭐ 0.4 = 60% MORE TRANSPARENT THAN THE ARTWORK. [stated] players want to see the terrain underneath the claim
+     * veins rather than have them painted over. Applied here rather than in the art so it covers EVERY faction's
+     * overlay texture, including ones added later, and so the source textures stay usable at full strength anywhere
+     * else they are drawn.
+     * </p>
+     * <p>
+     * ⚠ SCALES the texture's existing alpha, it does not replace it: a vein that was already semi-transparent stays
+     * proportionally softer, and fully transparent pixels stay fully transparent instead of becoming a faint haze.
+     * </p>
+     */
+    private static final float CLAIM_OVERLAY_OPACITY = 0.4F;
+
     private static int packNativeImageColor(int color) {
         var red = color & 0xFF;
         var green = (color >> 8) & 0xFF;
         var blue = (color >> 16) & 0xFF;
         var alpha = (color >> 24) & 0xFF;
+
+        alpha = Math.round(alpha * CLAIM_OVERLAY_OPACITY);
 
         return (blue << 24) | (green << 16) | (red << 8) | alpha;
     }

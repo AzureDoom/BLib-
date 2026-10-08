@@ -100,13 +100,27 @@ public class AzModelRenderer<K, T> {
 
         var poseStack = context.poseStack();
 
+        var skipFlatCubes = context.skipFlatCubes();
+
         for (var cube : bone.getCubes()) {
+            // A plane (one zero-length side) is skipped only when the pass asked for it - see
+            // AzRendererPipelineContext.skipFlatCubes; normal passes draw everything.
+            if (skipFlatCubes && isFlat(cube)) {
+                continue;
+            }
+
             poseStack.pushPose();
 
             renderCube(context, cube);
 
             poseStack.popPose();
         }
+    }
+
+    /** A cube with a zero-length side is a single quad - the same test {@code RenderUtil.fixInvertedFlatCube} uses. */
+    protected static boolean isFlat(GeoCube cube) {
+        var size = cube.size();
+        return size.x() == 0 || size.y() == 0 || size.z() == 0;
     }
 
     protected void renderChildBones(AzRendererPipelineContext<K, T> context, AzBone bone, boolean isReRender) {

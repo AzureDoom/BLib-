@@ -17,12 +17,25 @@ import java.util.Set;
 import java.util.function.ToIntFunction;
 
 import com.blib.api.common.util.v1.RefreshPolicy;
+import com.blib.internal.common.perf.BLibPerfProfiler;
+import com.blib.mod.common.registry.init.BLibGameRules;
 
 public class EntitySenseCache {
 
     private final Entity entity;
 
     private final Map<Class<? extends Entity>, List<Entity>> entitiesByClassMap;
+
+    /**
+     * Results of {@link #getByClass} for a class the scan did not bucket on its own (a superclass or interface).
+     * <p>
+     * ⚠⚠ Oct 5 - THESE USED TO LIVE IN {@code entitiesByClassMap}, beside the per-concrete-class scan buckets. A later,
+     * wider query walks that map collecting every assignable key - and a cached superclass result IS assignable - so
+     * {@code getByClass(Mob)} followed by {@code getByClass(LivingEntity)} returned every mob TWICE. Kept apart, the
+     * bucket map only ever holds what the scan put in it. (Old behaviour: {@code /gamerule blibSenseCacheFixes false}.)
+     * </p>
+     */
+    private final Map<Class<?>, List<Entity>> queryResultsByClassMap;
 
     private final Map<TagKey<EntityType<?>>, List<Entity>> entitiesByTagMap;
 
@@ -38,6 +51,9 @@ public class EntitySenseCache {
 
     private int lastSenseTick;
 
+    /** blibSenseCacheFixes, sampled at each refresh so a per-query lookup is not paid on every read. */
+    private boolean fixesEnabled = true;
+
     private EntitySenseCache(
         Entity entity,
         RefreshPolicy<EntitySenseCache> refreshPolicy,
@@ -46,6 +62,7 @@ public class EntitySenseCache {
     ) {
         this.entity = entity;
         this.entitiesByClassMap = new HashMap<>();
+        this.queryResultsByClassMap = new HashMap<>();
         this.entitiesByTagMap = new HashMap<>();
         this.entitiesByTypeMap = new HashMap<>();
         this.itemEntitiesByItemMap = new HashMap<>();
@@ -61,6 +78,7 @@ public class EntitySenseCache {
 
     public void clear() {
         entitiesByClassMap.clear();
+        queryResultsByClassMap.clear();
         entitiesByTypeMap.clear();
         itemEntitiesByItemMap.clear();
         entitiesByTagMap.clear();
@@ -73,6 +91,10 @@ public class EntitySenseCache {
     @SuppressWarnings("unchecked")
     public <T extends Entity> List<T> getByClass(Class<T> entityClass) {
         tryPopulateCache();
+
+        if (fixesEnabled) {
+            return (List<T>) getByClassSeparated(entityClass);
+        }
 
         // Check if we already have a cached result for this class.
         var cached = entitiesByClassMap.get(entityClass);
@@ -106,7 +128,53 @@ public class EntitySenseCache {
         return (List<T>) collectedEntities;
     }
 
+    private List<Entity> getByClassSeparated(Class<?> entityClass) {
+        // ⚠ No shortcut to the exact-class bucket: a query for a concrete class must still include its subclasses
+        // (getByClass(Zombie) wants zombie villagers too), which the old code silently dropped whenever the exact
+        // class had a bucket of its own.
+        var cached = queryResultsByClassMap.get(entityClass);
+
+        if (cached != null) {
+            return cached;
+        }
+
+        List<Entity> collectedEntities = null;
+
+        for (var entry : entitiesByClassMap.entrySet()) {
+            if (!entityClass.isAssignableFrom(entry.getKey())) {
+                continue;
+            }
+
+            if (collectedEntities == null) {
+                collectedEntities = new ArrayList<>();
+            }
+
+            collectedEntities.addAll(entry.getValue());
+        }
+
+        if (collectedEntities == null) {
+            collectedEntities = List.of();
+        }
+
+        queryResultsByClassMap.put(entityClass, collectedEntities);
+
+        return collectedEntities;
+    }
+
+    /**
+     * Returns nearby dropped items of the given item.
+     * <p>
+     * ⚠⚠ Oct 5 - THIS NEVER REFRESHED THE SCAN. Every other query calls {@code tryPopulateCache} first; this one read
+     * the map as it stood. So its answer depended on which sensor happened to run before it: empty if nothing else had
+     * queried yet, and otherwise as old as that other query's refresh. avp_human's torch, water-bucket and totem
+     * sensors read through here. (Old behaviour: {@code /gamerule blibSenseCacheFixes false}.)
+     * </p>
+     */
     public List<ItemEntity> getByItem(Item item) {
+        if (entity.level().getGameRules().getBoolean(BLibGameRules.SENSE_CACHE_FIXES)) {
+            tryPopulateCache();
+        }
+
         return itemEntitiesByItemMap.getOrDefault(item, List.of());
     }
 
@@ -164,32 +232,40 @@ public class EntitySenseCache {
 
         clear();
 
+        var profiling = BLibPerfProfiler.isActive();
+        var scanStartNanos = profiling ? System.nanoTime() : 0L;
+        fixesEnabled = entity.level().getGameRules().getBoolean(BLibGameRules.SENSE_CACHE_FIXES);
+
         var scanRadius = scanRadiusFunction.applyAsInt(this);
         var diameter = scanRadius * 2;
         var scanArea = AABB.ofSize(entity.getEyePosition(), diameter, diameter, diameter);
 
         var entities = entity.level().getEntitiesOfClass(Entity.class, scanArea);
 
-        for (var entity : entities) {
-            entitiesByClassMap.computeIfAbsent(entity.getClass(), $ -> new ArrayList<>())
-                .add(entity);
-            entitiesByTypeMap.computeIfAbsent(entity.getType(), $ -> new ArrayList<>())
-                .add(entity);
+        for (var scanned : entities) {
+            entitiesByClassMap.computeIfAbsent(scanned.getClass(), $ -> new ArrayList<>())
+                .add(scanned);
+            entitiesByTypeMap.computeIfAbsent(scanned.getType(), $ -> new ArrayList<>())
+                .add(scanned);
 
-            if (entity instanceof ItemEntity itemEntity) {
+            if (scanned instanceof ItemEntity itemEntity) {
                 itemEntitiesByItemMap.computeIfAbsent(itemEntity.getItem().getItem(), $ -> new ArrayList<>())
                     .add(itemEntity);
             }
 
             for (var tagKey : trackedTags) {
-                if (entity.getType().is(tagKey)) {
+                if (scanned.getType().is(tagKey)) {
                     entitiesByTagMap.computeIfAbsent(tagKey, $ -> new ArrayList<>())
-                        .add(entity);
+                        .add(scanned);
                 }
             }
         }
 
         this.lastSenseTick = entity.tickCount;
+
+        if (profiling) {
+            BLibPerfProfiler.recordScan(entity, entities.size(), System.nanoTime() - scanStartNanos);
+        }
     }
 
     public static class Builder {

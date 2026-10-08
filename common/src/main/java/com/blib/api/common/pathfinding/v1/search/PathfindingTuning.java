@@ -37,7 +37,24 @@ public record PathfindingTuning(
      * failure is what lets them use it.
      * </p>
      */
-    int maxPreloadChunks
+    int maxPreloadChunks,
+
+    /**
+     * Fractional discount on an edge whose destination lies on the path the entity is ALREADY following.
+     * <p>
+     * ⚠⚠ THE ANTI-PING-PONG DIAL. It biases the SEARCH rather than refusing to replan. The churn it fixes: a chasing
+     * mob re-searches every recalculate interval because its target keeps moving, and when two routes round an obstacle
+     * cost about the same, whichever is momentarily cheaper wins — so the answer flips as the target jiggles and the
+     * mob visibly turns around and back again.
+     * </p>
+     * <p>
+     * ⚠ Keeping the OLD PATH instead would be wrong: the target moved, so the old path leads to where the target used
+     * to be. Discounting edges that follow the old route means the new path still aims at the new target but prefers
+     * the shape it already committed to, and abandons it only when the alternative is better by more than this margin.
+     * 0 disables it and restores the previous behaviour exactly.
+     * </p>
+     */
+    float replanCorridorBias
 ) {
 
     public static final int DEFAULT_CORRIDOR_DISTANCE_THRESHOLD = 32;
@@ -56,13 +73,20 @@ public record PathfindingTuning(
      */
     public static final int DEFAULT_MAX_PRELOAD_CHUNKS = 1024;
 
+    /** Default for {@link #replanCorridorBias}. Tuned to steady a chase without distorting genuinely better routes. */
+    public static final float DEFAULT_REPLAN_CORRIDOR_BIAS = 0.25f;
+
+    /** Above this the discount could drive an edge close to free, which distorts routes rather than steadying them. */
+    public static final float MAX_REPLAN_CORRIDOR_BIAS = 0.9f;
+
     public static final PathfindingTuning DEFAULT = new PathfindingTuning(
         DEFAULT_CORRIDOR_DISTANCE_THRESHOLD,
         DEFAULT_SECTION_SEARCH_NODE_BUDGET,
         DEFAULT_CORRIDOR_BUFFER_RADIUS,
         DEFAULT_ASYNC_CHUNK_MARGIN,
         DEFAULT_MIN_IMPROVEMENT,
-        DEFAULT_MAX_PRELOAD_CHUNKS
+        DEFAULT_MAX_PRELOAD_CHUNKS,
+        DEFAULT_REPLAN_CORRIDOR_BIAS
     );
 
     public PathfindingTuning {
@@ -72,6 +96,39 @@ public record PathfindingTuning(
         asyncChunkMargin = Math.max(0, asyncChunkMargin);
         minImprovement = finiteAtLeast(minImprovement, 0.0f, DEFAULT_MIN_IMPROVEMENT);
         maxPreloadChunks = Math.max(1, maxPreloadChunks);
+        replanCorridorBias = clamp(replanCorridorBias, 0.0f, MAX_REPLAN_CORRIDOR_BIAS, DEFAULT_REPLAN_CORRIDOR_BIAS);
+    }
+
+    /**
+     * ⚠ Source compatibility for callers written against the six-component record. A record's canonical constructor is
+     * positional, so adding a component silently breaks every existing {@code new PathfindingTuning(...)} call outside
+     * this repo. Keeping the old arity means those keep compiling and simply get the default bias.
+     */
+    public PathfindingTuning(
+        int corridorDistanceThreshold,
+        int sectionSearchNodeBudget,
+        int corridorBufferRadius,
+        int asyncChunkMargin,
+        float minImprovement,
+        int maxPreloadChunks
+    ) {
+        this(
+            corridorDistanceThreshold,
+            sectionSearchNodeBudget,
+            corridorBufferRadius,
+            asyncChunkMargin,
+            minImprovement,
+            maxPreloadChunks,
+            DEFAULT_REPLAN_CORRIDOR_BIAS
+        );
+    }
+
+    private static float clamp(float value, float minimum, float maximum, float fallback) {
+        if (!Float.isFinite(value)) {
+            return fallback;
+        }
+
+        return Math.min(maximum, Math.max(minimum, value));
     }
 
     private static float finiteAtLeast(float value, float minimum, float fallback) {

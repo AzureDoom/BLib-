@@ -91,7 +91,17 @@ public class AzArmorRendererPipeline extends AzRendererPipeline<UUID, ItemStack>
         scaleModelForRender(context, scaleWidth, scaleHeight, isReRender);
         scaleBoneWithModelPart(armorContext, boneContext, isReRender);
 
-        if (AzAnimatorAccessor.getOrNull(context().currentEntity()) == null)
+        // ⚠⚠⚠ Aug 28 — THE MISSING-HELMET BUG. The old condition skipped the per-slot visibility dance for any
+        // wearer with an az animator ATTACHED — meant as "az mobs manage their own armour bones", but written as
+        // "anyone an animator ever touched". The moment anything attached an animator to a PLAYER (cloak, mask,
+        // any az item system), that player's armour choreography stopped running for good: every model copy froze
+        // in whatever bone state it last held — deterministically per stack, surviving restarts — which is exactly
+        // the "pred mask never renders while the other pieces do" report. Players ALWAYS get the humanoid slot
+        // dance; az-animated non-players keep the skip.
+        if (
+            context().currentEntity() instanceof net.minecraft.world.entity.player.Player
+                || AzAnimatorAccessor.getOrNull(context().currentEntity()) == null
+        )
             boneContext.applyBoneVisibilityBySlot(currentSlot);
 
         var alphaValue = config.alpha(context.animatable());

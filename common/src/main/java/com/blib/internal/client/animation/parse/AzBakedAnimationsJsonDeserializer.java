@@ -71,6 +71,23 @@ public class AzBakedAnimationsJsonDeserializer implements JsonDeserializer<AzBak
                 list.add(Pair.of(String.valueOf(timestamp), entry.getValue()));
             }
 
+            // 🚨🚨 SORT BY TIME. THIS LIST **IS** THE TIMELINE, AND JSON KEY ORDER IS NOT TIME ORDER.
+            //
+            // ⚠⚠ A JsonObject preserves INSERTION order, so these keyframes arrive in the order the exporter wrote
+            // them - which is the order the animator CREATED them, not the order they play. A perfectly ordinary
+            // workflow (key the pose at 0, copy it to the end to close the loop, then add the middle pose) exports as
+            // "0", "3", "1.5". Read literally that is a timeline running 0 -> 3 -> 1.5, whose last segment goes
+            // BACKWARDS: the playhead lands in a span it cannot advance through and the bone sticks.
+            //
+            // ⚠ HOW IT PRESENTS, because it is baffling from the outside: the clip is found, baked, queued for every
+            // bone and reported PLAYING - and the model does not move. A live capture of avp_alien's crusher showed
+            // gTail11 pinned at exactly its t=1.5 value for 200 straight frames. Blockbench sorts by time before it
+            // plays, so the preview is always correct, and the author sees a working animation that is frozen in game.
+            //
+            // ⭐ The JSON spec is explicit that object key order carries no meaning, so a reader must impose its own.
+            // Sorting here fixes every already-exported animation in every mod, whatever wrote it.
+            list.sort(java.util.Comparator.comparingDouble(pair -> readTimestamp(pair.getFirst())));
+
             return list;
         }
 

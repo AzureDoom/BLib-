@@ -46,7 +46,23 @@ public abstract class MixinDebugPackets {
 
     @Inject(at = @At("HEAD"), method = "sendGoalSelector")
     private static void sendGoalSelector(Level level, Mob mob, GoalSelector goalSelector, CallbackInfo callbackInfo) {
-        if (!(level instanceof ServerLevel) || mob == null || goalSelector == null) {
+        // ⚠⚠ Sep 28 - Spark profile. Vanilla calls this for EVERY mob on EVERY AI tick (Mob.serverAiStep ->
+        // sendDebugPackets), and vanilla's own body is empty. Without this gate BLib built a goal list and sent a
+        // packet
+        // to every tracking player, per mob, 20 times a second - fish, squid, cows, everything - purely to feed a debug
+        // overlay that is off by default. It was the largest single BLib cost in the profile (0.48% of the server
+        // thread
+        // with ~110 entities loaded, before counting the client decoding every packet). Now gated exactly like
+        // sendPathFindingPacket above: nothing is built or sent unless BLib's debug rendering is switched on.
+        if (!BLibModPropertyAccess.INSTANCE.get(BLibModProperties.Debug.Render.ENABLED)) {
+            return;
+        }
+
+        if (!(level instanceof ServerLevel serverLevel) || mob == null || goalSelector == null) {
+            return;
+        }
+
+        if (serverLevel.getGameRules().getBoolean(GameRules.RULE_REDUCEDDEBUGINFO)) {
             return;
         }
 

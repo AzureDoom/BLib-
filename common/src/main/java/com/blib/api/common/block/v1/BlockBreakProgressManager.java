@@ -39,6 +39,31 @@ public class BlockBreakProgressManager {
         // );
     }
 
+    /**
+     * Clears BLib's break progress at {@code pos} and tells nearby clients - but ONLY if BLib was actually tracking
+     * progress there. Returns true if it was.
+     * <p>
+     * ⚠⚠ Added Sep 28 (Spark profile, BLib + Sable test pack). {@code MixinServerLevel_BlockBreakProgressManager} runs
+     * on EVERY block change in the world - fluids settling in new chunks, leaves decaying, crops, pistons, and whole
+     * contraptions being assembled or moved (Create/Aeronautics/Sable). It used to call {@link #resetProgress}, which
+     * always calls {@code ServerLevel.destroyBlockProgress}: vanilla walks every player and sends a block-destruction
+     * packet to each one within 32 blocks. So every block change near a player cost a network packet per nearby player,
+     * even though BLib had no break progress there to clear (0.39% of the server thread in a quiet test world, before
+     * any contraption moved). This skips all of that when nothing is tracked - which is almost always.
+     */
+    public static boolean clearProgressIfTracked(Level level, BlockPos pos) {
+        if (BlockBreakProgressManager.BLOCK_BREAK_PROGRESS_MAP.remove(pos.immutable()) == null) {
+            return false;
+        }
+
+        level.destroyBlockProgress(computeBlockPosHash(pos), pos, -1);
+        return true;
+    }
+
+    /**
+     * Clears the break progress at {@code pos} and ALWAYS tells nearby clients, tracked or not. Kept exactly as before
+     * for callers that break blocks themselves; the per-block-change hook uses {@link #clearProgressIfTracked}.
+     */
     public static void resetProgress(Level level, BlockPos pos) {
         BlockBreakProgressManager.BLOCK_BREAK_PROGRESS_MAP.remove(pos.immutable());
         level.destroyBlockProgress(computeBlockPosHash(pos), pos, -1);

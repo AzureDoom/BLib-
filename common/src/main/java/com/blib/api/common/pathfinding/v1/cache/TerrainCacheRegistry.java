@@ -43,9 +43,27 @@ public final class TerrainCacheRegistry {
 
     /**
      * Removes all caches for a level (call on level unload).
+     * <p>
+     * ⚠ Nothing calls this yet - see {@link #clear()}, which is what actually releases worlds today.
      */
     public static void onLevelUnload(Level level) {
         CACHES.remove(level);
+    }
+
+    /**
+     * Drops every cache for every level. Called when the server stops (Sep 28).
+     * <p>
+     * ⚠⚠ WHY: the map holds each Level STRONGLY and {@link #onLevelUnload} is never called, so every world opened in a
+     * session stayed in memory - chunks and all - until the game closed. Singleplayer creates new Level objects on each
+     * world load, so leaving and re-entering worlds piled them up.
+     * <p>
+     * ⭐ SAFE AT SERVER STOP: this is only the LOOKUP table. Each navigator keeps its own reference to the cache it was
+     * given, so a background path search still finishing after shutdown keeps working on its own cache. Nothing reads
+     * the table again until a new world creates fresh caches, exactly as on a first load. During play it is never
+     * called, so nothing changes in-game.
+     */
+    public static void clear() {
+        CACHES.clear();
     }
 
     private TerrainCacheRegistry() {

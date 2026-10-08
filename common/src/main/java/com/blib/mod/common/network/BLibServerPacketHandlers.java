@@ -3,8 +3,11 @@ package com.blib.mod.common.network;
 import com.blib.api.common.network.v1.NetworkHandler;
 import com.blib.api.common.registry.v1.impl.BLibNetworkRegistry;
 import com.blib.mod.BLib;
+import com.blib.mod.common.animation_sync.BLibItemAnimationClientHandler;
+import com.blib.mod.common.animation_sync.S2CItemAnimationPayload;
 import com.blib.mod.common.network.packet.C2SGOAPTrackPayload;
 import com.blib.mod.common.network.packet.S2CChunkClaimsSyncPayload;
+import com.blib.mod.common.network.packet.S2CClaimHudEventPayload;
 import com.blib.mod.common.network.packet.S2CEntityDataSyncPayload;
 import com.blib.mod.common.network.packet.S2CFactionMetadataSyncPayload;
 import com.blib.mod.common.network.packet.S2CGOAPDebugPayload;
@@ -29,6 +32,23 @@ public class BLibServerPacketHandlers {
                 S2CChunkClaimsSyncPayload.TYPE,
                 S2CChunkClaimsSyncPayload.CODEC,
                 BLibClientListener::handleChunkClaimsSync
+            )
+        );
+        REGISTRY.registerPacketHandler(
+            new NetworkHandler.FromServer<>(
+                S2CClaimHudEventPayload.TYPE,
+                S2CClaimHudEventPayload.CODEC,
+                BLibClientListener::handleClaimHudEvent
+            )
+        );
+
+        // ⚠ ADDED with the animation_sync package. This line and the packet direction are the only edits
+        // outside com.blib.mod.common.animation_sync, so the feature lifts out cleanly.
+        REGISTRY.registerPacketHandler(
+            new NetworkHandler.FromServer<>(
+                S2CItemAnimationPayload.TYPE,
+                S2CItemAnimationPayload.CODEC,
+                (payload, player) -> BLibItemAnimationClientHandler.handle(payload)
             )
         );
         REGISTRY.registerPacketHandler(

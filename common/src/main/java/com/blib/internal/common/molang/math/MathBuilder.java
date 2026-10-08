@@ -1,3 +1,8 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.common.molang.math;
 
 import java.lang.reflect.Constructor;
@@ -8,18 +13,7 @@ import java.util.Map;
 
 import com.blib.internal.common.exception.AzureLibException;
 import com.blib.internal.common.molang.math.functions.Function;
-import com.blib.internal.common.molang.math.functions.classic.ACos;
-import com.blib.internal.common.molang.math.functions.classic.ASin;
-import com.blib.internal.common.molang.math.functions.classic.ATan;
-import com.blib.internal.common.molang.math.functions.classic.ATan2;
-import com.blib.internal.common.molang.math.functions.classic.Abs;
-import com.blib.internal.common.molang.math.functions.classic.Cos;
-import com.blib.internal.common.molang.math.functions.classic.Exp;
-import com.blib.internal.common.molang.math.functions.classic.Ln;
-import com.blib.internal.common.molang.math.functions.classic.Mod;
-import com.blib.internal.common.molang.math.functions.classic.Pow;
-import com.blib.internal.common.molang.math.functions.classic.Sin;
-import com.blib.internal.common.molang.math.functions.classic.Sqrt;
+import com.blib.internal.common.molang.math.functions.classic.*;
 import com.blib.internal.common.molang.math.functions.easing.back.EaseInBack;
 import com.blib.internal.common.molang.math.functions.easing.back.EaseInOutBack;
 import com.blib.internal.common.molang.math.functions.easing.back.EaseOutBack;
@@ -57,22 +51,27 @@ import com.blib.internal.common.molang.math.functions.rounding.Ceil;
 import com.blib.internal.common.molang.math.functions.rounding.Floor;
 import com.blib.internal.common.molang.math.functions.rounding.Round;
 import com.blib.internal.common.molang.math.functions.rounding.Trunc;
-import com.blib.internal.common.molang.math.functions.utility.CopySign;
-import com.blib.internal.common.molang.math.functions.utility.DieRoll;
-import com.blib.internal.common.molang.math.functions.utility.DieRollInteger;
-import com.blib.internal.common.molang.math.functions.utility.HermiteBlend;
-import com.blib.internal.common.molang.math.functions.utility.InverseLerp;
-import com.blib.internal.common.molang.math.functions.utility.Lerp;
-import com.blib.internal.common.molang.math.functions.utility.LerpRotate;
-import com.blib.internal.common.molang.math.functions.utility.Random;
-import com.blib.internal.common.molang.math.functions.utility.RandomInteger;
-import com.blib.internal.common.molang.math.functions.utility.Sign;
+import com.blib.internal.common.molang.math.functions.utility.*;
 import com.blib.mod.BLib;
 
+/**
+ * Math builder This class is responsible for parsing math expressions provided by user in a string to an {@link IValue}
+ * which can be used to compute some value dynamically using different math operators, variables and functions. It works
+ * by first breaking down given string into a list of tokens and then putting them together in a binary tree-like
+ * {@link IValue}. TODO: maybe implement constant pool (to reuse same values)? TODO: maybe pre-compute constant
+ * expressions?
+ */
+@SuppressWarnings({ "unchecked", "unused" })
 public class MathBuilder {
 
-    public Map<String, Variable> variables = new HashMap<String, Variable>();
+    /**
+     * Named variables that can be used in math expression by this builder
+     */
+    public Map<String, Variable> variables = new HashMap<>();
 
+    /**
+     * Map of functions which can be used in the math expressions
+     */
     public Map<String, Class<? extends Function>> functions = new HashMap<>();
 
     public MathBuilder() {
@@ -168,14 +167,23 @@ public class MathBuilder {
         this.functions.put("ease_in_out_bounce", EaseInOutBounce.class);
     }
 
+    /**
+     * Register a variable
+     */
     public void register(Variable variable) {
         this.variables.put(variable.getName(), variable);
     }
 
+    /**
+     * Parse given math expression into a {@link IValue} which can be used to execute math.
+     */
     public IValue parse(String expression) throws Exception {
         return this.parseSymbols(this.breakdownChars(this.breakdown(expression)));
     }
 
+    /**
+     * Break down an expression
+     */
     public String[] breakdown(String expression) throws AzureLibException {
         /* If given string has illegal characters, then it can't be parsed */
         if (!expression.matches("^[\\w\\d\\s_+-/*%^&|<>=!?:.,()]+$")) {
@@ -209,9 +217,12 @@ public class MathBuilder {
         return chars;
     }
 
+    /**
+     * Breakdown characters into a list of math expression symbols.
+     */
     public List<Object> breakdownChars(String[] chars) {
         List<Object> symbols = new ArrayList<>();
-        String buffer = "";
+        StringBuilder buffer = new StringBuilder();
         int len = chars.length;
 
         for (int i = 0; i < len; i++) {
@@ -225,35 +236,41 @@ public class MathBuilder {
                 if (s.equals("-")) {
                     int size = symbols.size();
 
-                    boolean isFirst = size == 0 && buffer.isEmpty();
+                    boolean isFirst = size == 0 && (buffer.isEmpty());
                     boolean isOperatorBehind = size > 0
                         && (this.isOperator(symbols.get(size - 1)) || symbols.get(size - 1).equals(","))
-                        && buffer.isEmpty();
+                        && (buffer.isEmpty());
 
                     if (isFirst || isOperatorBehind) {
-                        buffer += s;
+                        buffer.append(s);
 
                         continue;
                     }
                 }
 
                 if (longOperator) {
-                    s = chars[i - 1] + s;
-                    buffer = buffer.substring(0, buffer.length() - 1);
+                    String previous = chars[i - 1];
+                    s = previous + s;
+
+                    if (!buffer.isEmpty()) {
+                        buffer = new StringBuilder(buffer.substring(0, buffer.length() - 1));
+                    } else if (!symbols.isEmpty() && previous.equals(symbols.get(symbols.size() - 1))) {
+                        symbols.remove(symbols.size() - 1);
+                    }
                 }
 
                 /* Push buffer and operator */
                 if (!buffer.isEmpty()) {
-                    symbols.add(buffer);
-                    buffer = "";
+                    symbols.add(buffer.toString());
+                    buffer = new StringBuilder();
                 }
 
                 symbols.add(s);
             } else if (s.equals("(")) {
                 /* Push a list of symbols */
                 if (!buffer.isEmpty()) {
-                    symbols.add(buffer);
-                    buffer = "";
+                    symbols.add(buffer.toString());
+                    buffer = new StringBuilder();
                 }
 
                 int counter = 1;
@@ -268,29 +285,35 @@ public class MathBuilder {
                     }
 
                     if (counter == 0) {
-                        symbols.add(this.breakdownChars(buffer.split("(?!^)")));
+                        symbols.add(this.breakdownChars(buffer.toString().split("(?!^)")));
 
                         i = j;
-                        buffer = "";
+                        buffer = new StringBuilder();
 
                         break;
                     } else {
-                        buffer += c;
+                        buffer.append(c);
                     }
                 }
             } else {
                 /* Accumulate the buffer */
-                buffer += s;
+                buffer.append(s);
             }
         }
 
         if (!buffer.isEmpty()) {
-            symbols.add(buffer);
+            symbols.add(buffer.toString());
         }
 
         return symbols;
     }
 
+    /**
+     * Parse symbols This function is the most important part of this class. It's responsible for turning list of
+     * symbols into {@link IValue}. This is done by constructing a binary tree-like {@link IValue} based on
+     * {@link Operator} class. However, beside parsing operations, it's also can return one or two item sized symbol
+     * lists.
+     */
     public IValue parseSymbols(List<Object> symbols) throws Exception {
         IValue ternary = this.tryTernary(symbols);
 
@@ -315,48 +338,39 @@ public class MathBuilder {
             }
         }
 
-        /* Any other math expression */
-        int lastOp = this.seekLastOperator(symbols);
-        int op = lastOp;
+        /*
+         * Any other math expression: split at the lowest-precedence binary operator, taking the rightmost one on ties
+         * so operators of equal precedence group left to right (a - b - c == (a - b) - c). An operator at the start or
+         * directly after another operator or comma is unary (e.g. the '-' in "2 * -(x)") and is not a split point.
+         */
+        int split = -1;
+        Operation splitOperation = null;
 
-        while (op != -1) {
-            int leftOp = this.seekLastOperator(symbols, op - 1);
+        for (int i = 0; i < size; i++) {
+            Object symbol = symbols.get(i);
 
-            if (leftOp != -1) {
-                Operation left = this.operationForOperator((String) symbols.get(leftOp));
-                Operation right = this.operationForOperator((String) symbols.get(op));
+            if (!(symbol instanceof String sign) || !Operation.OPERATORS.contains(sign))
+                continue;
 
-                if (right.value > left.value) {
-                    IValue leftValue = this.parseSymbols(symbols.subList(0, leftOp));
-                    IValue rightValue = this.parseSymbols(symbols.subList(leftOp + 1, size));
+            if (i == 0 || this.isOperator(symbols.get(i - 1)) || ",".equals(symbols.get(i - 1)))
+                continue;
 
-                    return new Operator(left, leftValue, rightValue);
-                } else if (left.value > right.value) {
-                    Operation initial = this.operationForOperator((String) symbols.get(lastOp));
+            Operation operation = this.operationForOperator(sign);
 
-                    if (initial.value < left.value) {
-                        IValue leftValue = this.parseSymbols(symbols.subList(0, lastOp));
-                        IValue rightValue = this.parseSymbols(symbols.subList(lastOp + 1, size));
-
-                        return new Operator(initial, leftValue, rightValue);
-                    }
-
-                    IValue leftValue = this.parseSymbols(symbols.subList(0, op));
-                    IValue rightValue = this.parseSymbols(symbols.subList(op + 1, size));
-
-                    return new Operator(right, leftValue, rightValue);
-                }
+            if (splitOperation == null || operation.value <= splitOperation.value) {
+                split = i;
+                splitOperation = operation;
             }
-
-            op = leftOp;
         }
 
-        Operation operation = this.operationForOperator((String) symbols.get(lastOp));
+        if (splitOperation == null) {
+            throw new AzureLibException("Couldn't find an operator to parse in " + symbols);
+        }
 
         return new Operator(
-            operation,
-            this.parseSymbols(symbols.subList(0, lastOp)),
-            this.parseSymbols(symbols.subList(lastOp + 1, size))
+            splitOperation,
+            this.parseSymbols(symbols.subList(0, split)),
+            this.parseSymbols(symbols.subList(split + 1, size))
         );
     }
 
@@ -364,6 +378,9 @@ public class MathBuilder {
         return this.seekLastOperator(symbols, symbols.size() - 1);
     }
 
+    /**
+     * Find the index of the first operator
+     */
     protected int seekLastOperator(List<Object> symbols, int offset) {
         for (int i = offset; i >= 0; i--) {
             Object o = symbols.get(i);
@@ -380,6 +397,9 @@ public class MathBuilder {
         return this.seekFirstOperator(symbols, 0);
     }
 
+    /**
+     * Find the index of the first operator
+     */
     protected int seekFirstOperator(List<Object> symbols, int offset) {
         for (int i = offset, size = symbols.size(); i < size; i++) {
             Object o = symbols.get(i);
@@ -392,6 +412,10 @@ public class MathBuilder {
         return -1;
     }
 
+    /**
+     * Try parsing a ternary expression From what we know, with ternary expressions, we should have only one ? and :,
+     * and some elements from beginning till ?, in between ? and :, and also some remaining elements after :.
+     */
     protected IValue tryTernary(List<Object> symbols) throws Exception {
         int question = -1;
         int questions = 0;
@@ -430,6 +454,12 @@ public class MathBuilder {
         return null;
     }
 
+    /**
+     * Create a function value This method in comparison to {@link #valueFromObject(Object)} needs the name of the
+     * function and list of args (which can't be stored in one object). This method will constructs {@link IValue}s from
+     * list of args mixed with operators, groups, values and commas. And then plug it in to a class constructor with
+     * given name.
+     */
     protected IValue createFunction(String first, List<Object> args) throws Exception {
         /* Handle special cases with negation */
         if (first.equals("!")) {
@@ -471,9 +501,13 @@ public class MathBuilder {
 
         Class<? extends Function> function = this.functions.get(first);
         Constructor<? extends Function> ctor = function.getConstructor(IValue[].class, String.class);
-        return ctor.newInstance(values.toArray(new IValue[values.size()]), first);
+        return ctor.newInstance(values.toArray(new IValue[0]), first);
     }
 
+    /**
+     * Get value from an object. This method is responsible for creating different sort of values based on the input
+     * object. It can create constants, variables and groups.
+     */
     public IValue valueFromObject(Object object) {
         try {
 
@@ -493,13 +527,13 @@ public class MathBuilder {
                     /* Need to account for a negative value variable */
                     if (symbol.startsWith("-")) {
                         symbol = symbol.substring(1);
-                        Variable value = this.getVariable(symbol);
+                        Variable value = this.resolveVariable(symbol);
 
                         if (value != null) {
                             return new Negative(value);
                         }
                     } else {
-                        IValue value = this.getVariable(symbol);
+                        IValue value = this.resolveVariable(symbol);
 
                         /* Avoid NPE */
                         if (value != null) {
@@ -515,10 +549,25 @@ public class MathBuilder {
         return new Constant(0);
     }
 
+    /**
+     * Get variable
+     */
     protected Variable getVariable(String name) {
         return this.variables.get(name);
     }
 
+    /**
+     * Resolve a variable referenced by an expression while parsing. Defaults to {@link #getVariable(String)}; parsers
+     * with expression-scoped variables override this so parse-time lookups can see them without slowing down runtime
+     * {@code getVariable} calls.
+     */
+    protected Variable resolveVariable(String name) {
+        return this.getVariable(name);
+    }
+
+    /**
+     * Get operation for given operator strings
+     */
     protected Operation operationForOperator(String op) throws AzureLibException {
         for (Operation operation : Operation.values()) {
             if (operation.sign.equals(op)) {
@@ -529,18 +578,27 @@ public class MathBuilder {
         throw new AzureLibException("There is no such operator '" + op + "'!");
     }
 
+    /**
+     * Whether given object is a variable
+     */
     protected boolean isVariable(Object o) {
-        return o instanceof String string && !this.isDecimal((String) o) && !this.isOperator(string);
+        return o instanceof String string && !this.isDecimal(string) && !this.isOperator(string);
     }
 
     protected boolean isOperator(Object o) {
         return o instanceof String string && this.isOperator(string);
     }
 
+    /**
+     * Whether string is an operator
+     */
     protected boolean isOperator(String s) {
         return Operation.OPERATORS.contains(s) || s.equals("?") || s.equals(":");
     }
 
+    /**
+     * Whether string is numeric (including whether it's a floating number)
+     */
     protected boolean isDecimal(String s) {
         return s.matches("^-?\\d+(\\.\\d+)?$");
     }

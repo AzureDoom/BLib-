@@ -25,8 +25,10 @@ import com.blib.api.client.model.v1.AzBone;
 import com.blib.api.client.registry.v1.AzArmorRendererRegistry;
 import com.blib.api.client.render.v1.AzRendererPipelineContext;
 import com.blib.api.client.render.v1.armor.AzArmorRenderer;
+import com.blib.api.client.render.v1.armor.AzForeignArmor;
 import com.blib.api.common.color.v1.Color;
 import com.blib.internal.client.render.util.RenderUtil;
+import com.blib.internal.client.service.BLibInternalClientServices;
 
 public class AzArmorLayer<T extends LivingEntity> implements AzRenderLayer<UUID, T> {
 
@@ -113,7 +115,16 @@ public class AzArmorLayer<T extends LivingEntity> implements AzRenderLayer<UUID,
                 if (renderer != null) {
                     renderAzArmorPiece(renderer, context, bone, slot, armorStack, modelPart, model);
                 } else {
-                    renderArmorPiece(context, bone, slot, armorStack, modelPart);
+                    // Armor from another mod that draws its own model (GeckoLib, or any NeoForge armor-model hook
+                    // user) goes through that model; only armor with nothing of its own falls to the raw layer
+                    // textures. See AzForeignArmor for why - and for the magenta it replaces.
+                    var foreignModel = AzForeignArmor.getModel(context.animatable(), armorStack, slot, model);
+
+                    if (foreignModel != null) {
+                        renderForeignArmorPiece(foreignModel, context, bone, slot, armorStack, modelPart, model);
+                    } else {
+                        renderArmorPiece(context, bone, slot, armorStack, modelPart);
+                    }
                 }
             }
 
@@ -177,6 +188,57 @@ public class AzArmorLayer<T extends LivingEntity> implements AzRenderLayer<UUID,
         );
     }
 
+    protected void renderForeignArmorPiece(
+        HumanoidModel<?> foreignModel,
+        AzRendererPipelineContext<UUID, T> context,
+        AzBone bone,
+        EquipmentSlot slot,
+        ItemStack armorStack,
+        ModelPart modelPart,
+        HumanoidModel<T> baseModel
+    ) {
+        var animatable = context.animatable();
+        var color = armorStack.is(ItemTags.DYEABLE) ? DyedItemColor.getOrDefault(armorStack, -6265536) : -1;
+        var material = ((ArmorItem) armorStack.getItem()).getMaterial();
+        var inner = slot == EquipmentSlot.LEGS;
+
+        AzForeignArmor.render(
+            foreignModel,
+            baseModel,
+            modelPart,
+            animatable,
+            armorStack,
+            slot,
+            context.poseStack(),
+            context.multiBufferSource(),
+            () -> {
+                // Only reached for a plain HumanoidModel (GeckoLib binds its own): the first material layer, resolved
+                // through the loader so a per-item texture override is honoured.
+                var layers = material.value().layers();
+                var layer = layers.isEmpty() ? null : layers.getFirst();
+                var texture = layer == null
+                    ? net.minecraft.resources.ResourceLocation.withDefaultNamespace("textures/models/armor/iron_layer_1.png")
+                    : BLibInternalClientServices.CLIENT_REGISTRY.getForeignArmorTexture(animatable, armorStack, slot, layer, inner);
+
+                return context.multiBufferSource().getBuffer(RenderType.armorCutoutNoCull(texture));
+            },
+            context.packedLight(),
+            context.packedOverlay(),
+            color,
+            context.partialTick()
+        );
+
+        if (armorStack.hasFoil()) {
+            modelPart.render(
+                context.poseStack(),
+                getVanillaArmorBuffer(context, armorStack, slot, bone, null, true),
+                context.packedLight(),
+                context.packedOverlay(),
+                Color.WHITE.argbInt()
+            );
+        }
+    }
+
     protected <I extends Item> void renderArmorPiece(
         AzRendererPipelineContext<UUID, T> context,
         AzBone bone,
@@ -231,8 +293,12 @@ public class AzArmorLayer<T extends LivingEntity> implements AzRenderLayer<UUID,
             return context.multiBufferSource().getBuffer(RenderType.armorEntityGlint());
         }
 
-        return context.multiBufferSource()
-            .getBuffer(RenderType.armorCutoutNoCull(layer.texture(slot == EquipmentSlot.LEGS)));
+        // Through the loader so a mod's per-item armor texture override is honoured, exactly as vanilla's own
+        // HumanoidArmorLayer does on NeoForge; on Fabric this is the material layer's texture unchanged.
+        var texture = BLibInternalClientServices.CLIENT_REGISTRY
+            .getForeignArmorTexture(context.animatable(), stack, slot, layer, slot == EquipmentSlot.LEGS);
+
+        return context.multiBufferSource().getBuffer(RenderType.armorCutoutNoCull(texture));
     }
 
     protected @Nullable AzArmorRenderer getRendererForItem(ItemStack stack) {

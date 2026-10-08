@@ -62,6 +62,7 @@ import com.blib.api.common.event.v1.handle.impl.BLibEventListenerContainer;
 import com.blib.api.common.event.v1.impl.BLibCommonSetupEvents;
 import com.blib.api.common.mod.v1.BLibMod;
 import com.blib.api.common.network.v1.NetworkHandler;
+import com.blib.api.common.network.v1.PacketDirection;
 import com.blib.api.common.registry.v1.BLibHolder;
 import com.blib.internal.common.event.BLibGlobalEvents;
 import com.blib.neoforge.event.BLibNeoForgeEventHandle;
@@ -98,6 +99,8 @@ public class BLibNeoForgeModContainer {
     private final List<LiteralArgumentBuilder<CommandSourceStack>> literalArgumentBuilders;
 
     private final List<NetworkHandler<?>> networkHandlers;
+
+    private final List<PacketDirection<?>> packetDirections;
 
     private final BLibEventListenerHandle<BLibChunkClaimAddedEvent> onChunkClaimAdded;
 
@@ -171,6 +174,7 @@ public class BLibNeoForgeModContainer {
         this.furnaceFuelData = new ArrayList<>();
         this.literalArgumentBuilders = new ArrayList<>();
         this.networkHandlers = new ArrayList<>();
+        this.packetDirections = new ArrayList<>();
         this.onChunkClaimAdded = new BLibGlobalOnlyEventHandle<>(mod, BLibGlobalEvents.CHUNK_CLAIM_ADDED);
         this.onChunkClaimRemoved = new BLibGlobalOnlyEventHandle<>(mod, BLibGlobalEvents.CHUNK_CLAIM_REMOVED);
         this.onChunkLoad = new BLibGlobalOnlyEventHandle<>(mod, BLibGlobalEvents.CHUNK_LOAD);
@@ -355,6 +359,10 @@ public class BLibNeoForgeModContainer {
         return Collections.unmodifiableList(networkHandlers);
     }
 
+    /* package-private */ List<PacketDirection<?>> getPacketDirections() {
+        return Collections.unmodifiableList(packetDirections);
+    }
+
     /* package-private */ List<Tuple2<PreparableReloadListener, PackType>> getReloadListeners() {
         return Collections.unmodifiableList(reloadListeners);
     }
@@ -396,6 +404,10 @@ public class BLibNeoForgeModContainer {
 
     /* package-private */ <T extends Mob> void registerEntitySpawnData(BLibEntitySpawnData<T> spawnData) {
         entitySpawnDataEntries.add(spawnData);
+    }
+
+    /* package-private */ <T extends CustomPacketPayload> void registerPacketDirection(PacketDirection<T> packetDirection) {
+        packetDirections.add(packetDirection);
     }
 
     /* package-private */ <T extends CustomPacketPayload> void registerPacketHandlers(NetworkHandler<T> networkHandler) {

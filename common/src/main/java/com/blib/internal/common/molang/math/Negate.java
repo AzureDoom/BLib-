@@ -1,5 +1,13 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.common.molang.math;
 
+/**
+ * Negate operator class This class is responsible for negating given value
+ */
 public class Negate implements IValue {
 
     public IValue value;
@@ -11,6 +19,13 @@ public class Negate implements IValue {
     @Override
     public double get() {
         return this.value.get() == 0 ? 1 : 0;
+    }
+
+    @Override
+    public IValue simplify() {
+        this.value = this.value.simplify();
+
+        return this.value instanceof Constant ? new Constant(this.get()) : this;
     }
 
     @Override

@@ -41,7 +41,13 @@ public class AzAutoGlowingLayer<K, T> implements AzRenderLayer<K, T> {
         var textureLocation = config.textureLocation(context.currentEntity(), animatable);
 
         if (!(animatable instanceof Entity entity)) {
-            return AzAbstractTexture.getRenderType(textureLocation);
+            // ⚠⚠ EMISSIVE, NOT THE BASE TEXTURE. This branch handles BLOCK ENTITIES, and it used to return
+            // getRenderType(textureLocation) - the plain texture - while every entity branch below correctly uses
+            // getEmissiveResource. The layer therefore redrew the WHOLE model with its base texture at FULL_SKY
+            // light, straight over the properly lit model. FULL_SKY carries no BLOCK light, so at night, indoors or
+            // in shade that overdraw is DARKER than the real lighting: every glowing block entity visibly dimmed the
+            // moment its glowmask existed, which for mode-switched textures meant "it goes dark when it turns on".
+            return AzAbstractTexture.getRenderType(AzAbstractTexture.getEmissiveResource(textureLocation));
         }
 
         var isInvisible = entity.isInvisible();

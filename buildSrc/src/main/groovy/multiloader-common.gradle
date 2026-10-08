@@ -20,6 +20,21 @@ java {
 
 repositories {
     mavenCentral()
+    // ⭐ Sep 27 — com.just (just-core, just-codec, just-goap) now comes ONLY from the repository inside this repo, at
+    // libs/just-maven. The libraries were handed to the AVP team by their author (bvanseghi) on Sep 26 and just-goap is
+    // now our own 0.4.1 build, which exists nowhere else. exclusiveContent means Gradle never asks any other repository
+    // for com.just, so the build no longer depends on maven.bvanseghi.dev staying online.
+    // ⚠ Sibling repos (avp_alien, avp_human, avp_predator...) resolve com.just TRANSITIVELY through BLib's POM, so they
+    // need this same block, pointing at ../blib/libs/just-maven, or they fail with "Could not find com.just:just-goap".
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'JustLocal'
+                url = rootProject.file('libs/just-maven').toURI()
+            }
+        }
+        filter { includeGroup('com.just') }
+    }
     // https://docs.gradle.org/current/userguide/declaring_repositories.html#declaring_content_exclusively_found_in_one_repository
     exclusiveContent {
         forRepository {
@@ -47,7 +62,6 @@ repositories {
         name = 'BlameJared'
         url = 'https://maven.blamejared.com'
     }
-    maven { url = "https://maven.bvanseghi.dev/just" }
     maven { url = "https://maven.azuredoom.com/mods" }
     maven { url = "https://maven.terraformersmc.com/releases" }
     maven { url = "https://maven.parchmentmc.org" }
@@ -96,7 +110,7 @@ jar {
                 'Bundled-Dependencies'       : "com.just:just-core:${just_core_version}, " +
                                                "com.just:just-codec:${just_codec_version}, " +
                                                "com.just:just-goap:${just_goap_version}",
-                'Bundled-Dependencies-Origin': 'https://maven.bvanseghi.dev/just',
+                'Bundled-Dependencies-Origin': 'Just-Collective libraries by bvanseghi, maintained by the AVP team since 2026-09-26',
                 'Bundled-Dependencies-Notice': 'META-INF/THIRD-PARTY-NOTICES.txt'
         ])
     }
@@ -206,146 +220,11 @@ spotless {
 
 
 // ============================================================================================
-//  RE-STAMP THE BUNDLED com.just JARS SO THEY IDENTIFY THEMSELVES
+//  THE BUNDLED com.just JARS CARRY THEIR OWN MANIFESTS NOW (Sep 27)
 // ============================================================================================
-//  just-core / just-codec / just-goap are published at maven.bvanseghi.dev with an ANONYMOUS
-//  manifest — literally only "Manifest-Version: 1.0" — and a POM with no name, licence or scm.
-//  BLib bundles all three, so a scanner sees three unidentified jars nested inside a mod, which
-//  is a pattern flagged as possible obfuscation. Upstream will not be changed, so the choice is
-//  between honest metadata added here and no metadata at all.
-//
-//  ⚠⚠⚠ THE ATTRIBUTION IS bvanseghi's, NOT STARGAZER STUDIOS'. The libraries are his. Stamping
-//  our own vendor name on them would turn a metadata fix into misattribution — far worse than the
-//  bare manifest ever was. Repackaged-By discloses that BLib added the metadata, so a reviewer
-//  comparing against upstream sees WHY the jars differ instead of finding an unexplained mismatch.
-//
-//  ⚠⚠ LIVES HERE, NOT IN THE LOADER BUILD FILES, BECAUSE THE TWO LOADERS NEST JARS AT DIFFERENT
-//  PATHS: NeoForge jarJar uses META-INF/jarjar/, Fabric loom `include` uses META-INF/jars/. One
-//  task applied to both beats two copies drifting apart, and any future loader is covered free.
-//  `common` produces no nested jars, so it simply matches nothing there.
-//
-//  ⚠⚠ THE jarJar / include DECLARATIONS ARE DELIBERATELY UNTOUCHED. On NeoForge
-//  `jarJar(api("com.just:..."))` does TWO jobs — `api` puts com.just on the COMPILE CLASSPATH and
-//  into the PUBLISHED POM, `jarJar` embeds it. Rewriting those to point at re-stamped files would
-//  silently drop the compile classpath and change the POM. This rewrites the FINISHED jar instead,
-//  leaving both bundling mechanisms and their metadata exactly as they were.
-//
-//  ⚠ ONLY META-INF/MANIFEST.MF inside each nested jar is rewritten. No class file is touched —
-//  verified against the real just-codec 0.1.0 artifact: 82 classes in, 82 out, still loadable.
+//  A task here used to rewrite META-INF/MANIFEST.MF inside each nested com.just jar after the
+//  build, because upstream published them with an empty manifest and could not be changed.
+//  Since Sep 26 the libraries are ours to maintain, so the jars in libs/just-maven were built
+//  with complete manifests in the first place and the post-build rewrite is gone. Nothing
+//  touches the built BLib jars after jarJar/include any more.
 // ============================================================================================
-tasks.register('restampBundledJustJars') {
-    description = 'Adds identifying manifests to the bundled com.just jars inside the built jars.'
-    group = 'build'
-
-    doLast {
-        // ⚠ ONE ENTRY PER BUNDLED LIBRARY — keep in step with the jarJar/include declarations.
-        var justLibraries = [
-            'just-core' : [version: just_core_version,  summary: 'General functional utilities (Option and friends).'],
-            'just-codec': [version: just_codec_version, summary: 'Schema-based serialisation used by BLib codecs.'],
-            'just-goap' : [version: just_goap_version,  summary: 'Goal-oriented action planner behind BLib AI.']
-        ]
-
-        // ⚠ Matched on the FILE NAME under any META-INF/ sub-directory, so both the NeoForge
-        // (jarjar/) and Fabric (jars/) layouts are covered without hard-coding either.
-        var nestedNames = justLibraries.collectEntries { name, meta ->
-            ["${name}-${meta.version}.jar".toString(), [name: name, meta: meta]]
-        }
-
-        fileTree(layout.buildDirectory.dir('libs')).matching { include '*.jar' }.each { builtJar ->
-            var rewritten = new File(temporaryDir, builtJar.name)
-            var changed = false
-
-            new java.util.zip.ZipFile(builtJar).withCloseable { source ->
-                new java.util.zip.ZipOutputStream(new FileOutputStream(rewritten)).withCloseable { out ->
-                    source.entries().each { entry ->
-                        var match = entry.name.startsWith('META-INF/')
-                            ? nestedNames[entry.name.substring(entry.name.lastIndexOf('/') + 1)]
-                            : null
-
-                        out.putNextEntry(new java.util.zip.ZipEntry(entry.name))
-
-                        if (match == null) {
-                            // ⚠ Safe here (unlike inside restampNestedJar): ZipFile.getInputStream
-                            // hands back a FRESH stream per entry, so closing it costs nothing.
-                            out.write(source.getInputStream(entry).bytes)
-                        } else {
-                            out.write(restampNestedJar(source.getInputStream(entry).bytes, match.name, match.meta))
-                            changed = true
-                            logger.lifecycle("Re-stamped ${entry.name} in ${builtJar.name}")
-                        }
-
-                        out.closeEntry()
-                    }
-                }
-            }
-
-            if (changed) {
-                java.nio.file.Files.move(
-                    rewritten.toPath(),
-                    builtJar.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                )
-            } else {
-                rewritten.delete()
-            }
-        }
-    }
-}
-
-/**
- * Returns the bytes of {@code nestedJarBytes} with only META-INF/MANIFEST.MF replaced.
- * ⚠ The manifest is written FIRST in the output; jar tooling expects it as the opening entry.
- */
-static byte[] restampNestedJar(byte[] nestedJarBytes, String moduleName, Map meta) {
-    var manifest = """Manifest-Version: 1.0\r
-Specification-Title: ${moduleName}\r
-Specification-Vendor: bvanseghi\r
-Specification-Version: ${meta.version}\r
-Implementation-Title: ${moduleName}\r
-Implementation-Vendor: bvanseghi\r
-Implementation-Version: ${meta.version}\r
-Implementation-URL: https://maven.bvanseghi.dev/just\r
-Bundled-Summary: ${meta.summary}\r
-Repackaged-By: BLib\r
-Repackaged-Note: Manifest metadata added by the bundling mod because the upstream artifact publishes none. Class files are unmodified.\r
-\r
-"""
-
-    var buffer = new ByteArrayOutputStream()
-
-    new java.util.zip.ZipInputStream(new ByteArrayInputStream(nestedJarBytes)).withCloseable { source ->
-        new java.util.zip.ZipOutputStream(buffer).withCloseable { out ->
-            out.putNextEntry(new java.util.zip.ZipEntry('META-INF/MANIFEST.MF'))
-            out.write(manifest.getBytes('UTF-8'))
-            out.closeEntry()
-
-            var entry
-            while ((entry = source.getNextEntry()) != null) {
-                if (entry.name == 'META-INF/MANIFEST.MF') {
-                    continue
-                }
-
-                out.putNextEntry(new java.util.zip.ZipEntry(entry.name))
-                // ⚠⚠ NEVER `source.bytes` HERE. Groovy's InputStream.getBytes() reads to the end
-                // AND CLOSES THE STREAM — on a ZipInputStream that kills the whole archive after
-                // the FIRST entry, and every entry after it fails with "Stream closed". Copy the
-                // current entry manually so the stream stays open for getNextEntry().
-                var copyBuffer = new byte[8192]
-                var read = 0
-
-                while ((read = source.read(copyBuffer)) > 0) {
-                    out.write(copyBuffer, 0, read)
-                }
-
-                out.closeEntry()
-            }
-        }
-    }
-
-    return buffer.toByteArray()
-}
-
-// ⚠ Runs after the jars exist and after jarJar/include have nested the artifacts.
-tasks.named('assemble') {
-    finalizedBy 'restampBundledJustJars'
-}

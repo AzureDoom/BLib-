@@ -27,6 +27,18 @@ final class PathNavigationPlanningComponent {
 
     private final PathNavigationStateComponent state;
 
+    /** When this navigator last re-planned because it was stuck. */
+    private int lastStuckReplanTick = Integer.MIN_VALUE;
+
+    /**
+     * Minimum ticks between stuck-triggered replans.
+     * <p>
+     * ⚠ Half a second. Long enough that a mob wedged against a wall is not charging the server a full pathfind every
+     * tick, short enough that genuinely getting unstuck still feels immediate.
+     * </p>
+     */
+    private static final int STUCK_REPLAN_COOLDOWN_TICKS = 10;
+
     private final BLibPathFinder pathFinder;
 
     private final @Nullable SegmentedPathPlanner planner;
@@ -90,9 +102,11 @@ final class PathNavigationPlanningComponent {
         var request = state.requestContext(entityPos, rawTarget, searchTarget);
         state.enterPlanning(request, null, null, System.nanoTime(), activePath);
 
+        // ⚠ Oct 5 - the partial-path stall applies to stuck replans too: a mob that keeps getting the same partial
+        // path from the same spot is not unstuck by computing it again.
         if (
-            !stuckReplan
-                && failureBackoff.isInFailureCooldown(state, entityPos)
+            (!stuckReplan && failureBackoff.isInFailureCooldown(state, entityPos))
+                || failureBackoff.isInPartialStall(entityPos, searchTarget)
         ) {
             var failure = failureCooldown(request);
             state.completePlanningWithFailed(request, failure);
@@ -143,6 +157,7 @@ final class PathNavigationPlanningComponent {
 
         if (
             failureBackoff.isInFailureCooldown(state, entityPos)
+                || failureBackoff.isInPartialStall(entityPos, searchTarget)
         ) {
             var failure = failureCooldown(request);
             state.enterPlanning(request, null, null, System.nanoTime(), activePath);
@@ -265,11 +280,40 @@ final class PathNavigationPlanningComponent {
             return;
         }
 
-        if (state.tickCount - state.lastPathComputeTick < runtimeConfig.getPathRecalculateIntervalInTicks()) {
+        var baseInterval = runtimeConfig.getPathRecalculateIntervalInTicks();
+
+        if (state.tickCount - state.lastPathComputeTick < baseInterval) {
             return;
         }
 
-        if (targets.hasTargetMovedForRecalculation()) {
+        // ⭐ Oct 6 - CHASE BUDGET. A mob chasing something that moves re-ran its whole search every time the target
+        // shifted three blocks (one block for a projected target), as often as every 5 ticks - and a search that may
+        // break blocks never goes async, so every one of those ran on the server thread. /blib perf measured a drone
+        // chase at ~9.5 ms per search and 656 us per drone per tick. Vanilla's own chase spaces its re-paths out with
+        // distance; this does the same. Within 16 blocks nothing changes. Beyond that the re-plan waits 10 ticks (20
+        // beyond 32) and the target must have moved 15% of the distance - a far target's exact block does not change
+        // the route that matters, which is the next few blocks. Off: /gamerule blibPathChaseBudget false.
+        var minMoveSquared = 0.0;
+
+        if (isChaseBudgetEnabled()) {
+            var distanceSquared = entityPos.distSqr(target);
+
+            if (distanceSquared > CHASE_FAR_DISTANCE_SQUARED) {
+                if (state.tickCount - state.lastPathComputeTick < Math.max(baseInterval, CHASE_FAR_INTERVAL_TICKS)) {
+                    return;
+                }
+            } else if (distanceSquared > CHASE_MID_DISTANCE_SQUARED) {
+                if (state.tickCount - state.lastPathComputeTick < Math.max(baseInterval, CHASE_MID_INTERVAL_TICKS)) {
+                    return;
+                }
+            }
+
+            if (distanceSquared > CHASE_MID_DISTANCE_SQUARED) {
+                minMoveSquared = distanceSquared * CHASE_MOVE_FRACTION_SQUARED;
+            }
+        }
+
+        if (targets.hasTargetMovedForRecalculation(minMoveSquared)) {
             if (tryReuseCurrentPathPrefix(target)) {
                 waypointFollower.advanceWaypoints(entityX, entityY, entityZ, entityWidth, entityHeight);
                 return;
@@ -292,7 +336,41 @@ final class PathNavigationPlanningComponent {
         }
     }
 
+    /** Chase budget: beyond 16 blocks the target-moved re-plan waits 10 ticks, beyond 32 it waits 20. */
+    private static final double CHASE_MID_DISTANCE_SQUARED = 16.0 * 16.0;
+
+    private static final double CHASE_FAR_DISTANCE_SQUARED = 32.0 * 32.0;
+
+    private static final int CHASE_MID_INTERVAL_TICKS = 10;
+
+    private static final int CHASE_FAR_INTERVAL_TICKS = 20;
+
+    /** Beyond 16 blocks the target must have moved 15% of the distance (squared here) to count as moved. */
+    private static final double CHASE_MOVE_FRACTION_SQUARED = 0.15 * 0.15;
+
+    private boolean isChaseBudgetEnabled() {
+        return !(level instanceof net.minecraft.world.level.Level concreteLevel)
+            || concreteLevel.getGameRules().getBoolean(com.blib.mod.common.registry.init.BLibGameRules.PATH_CHASE_BUDGET);
+    }
+
     void replanAfterStuck(BlockPos entityAnchorPos) {
+        // 🚨🚨 A STUCK REPLAN IS A FULL SYNCHRONOUS A* ON THE SERVER THREAD, and it had no cooldown at all.
+        //
+        // ⚠⚠ IDLE MOBS GET STUCK CONSTANTLY - wandering into walls, resin and each other - so this fired over and
+        // over. A live profile showed PathNavigator.detectStuck at 2.87% of the entire server thread, effectively
+        // ALL of it inside executeBlocking below, for mobs that were only pottering about.
+        //
+        // ⚠ ASYNC IS NOT AN OPTION HERE: executeAsync falls back to blocking whenever block-breaking is enabled,
+        // which it is for anything that digs. Rate limiting is what actually works.
+        //
+        // ⭐ Being stuck for another few ticks costs nothing - the mob is not moving either way. Re-running the
+        // search every tick cannot make it unstuck faster, it just charges the server for the same answer.
+        if (state.tickCount - lastStuckReplanTick < STUCK_REPLAN_COOLDOWN_TICKS) {
+            return;
+        }
+
+        lastStuckReplanTick = state.tickCount;
+
         clearPlanner();
         executeBlocking(
             entityAnchorPos,
@@ -419,6 +497,18 @@ final class PathNavigationPlanningComponent {
             var terrain = startNode.getTerrainType();
 
             failureBackoff.resetFailureCooldown(state);
+
+            // Oct 5 - a path that does not reach feeds the partial-path stall; one that reaches clears it.
+            if (path.isReached()) {
+                failureBackoff.resetPartialStall();
+            } else if (path.getNodeCount() > 0) {
+                var end = path.getNode(path.getNodeCount() - 1);
+                failureBackoff.recordPartial(
+                    request.entityStart(),
+                    request.searchTarget(),
+                    new BlockPos(end.getX(), end.getY(), end.getZ())
+                );
+            }
 
             if (path.isDone() && path.isReached()) {
                 state.completePlanningWithReached(request, path, terrain);
@@ -551,9 +641,18 @@ final class PathNavigationPlanningComponent {
                 || (shouldUsePlanner() && planner.hasActiveRoute()));
     }
 
+    /**
+     * ⭐ Called on BOTH the blocking and async search paths, which is why the corridor seed lives here rather than
+     * beside either search call — putting it next to {@code executeBlocking} would have left async replans churning
+     * exactly as before, and async is the path a busy server actually uses.
+     */
     private void preparePathFinder() {
         pathFinder.setFeatures(activePathfindingFeatures());
         pathFinder.setExcludedTerrains(runtimeConfig.getExcludedTerrains());
+
+        // The route we are already on. Null on a first search, which leaves the corridor empty and the search
+        // completely unbiased — this only ever steadies a REPLAN.
+        pathFinder.setPreferredCorridor(state.getCurrentPath());
     }
 
     private boolean shouldUsePlanner() {

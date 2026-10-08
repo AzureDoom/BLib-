@@ -119,7 +119,15 @@ public class BLibNeoForgeRegistryServiceImpl implements BLibRegistryService {
 
     @Override
     public <T extends CustomPacketPayload> void registerPacketDirection(BLibMod mod, PacketDirection<T> packetDirection) {
-        /* NO-OP */
+        // ⚠⚠ Aug 27 — this was a silent NO-OP, and it broke DEDICATED SERVERS the first time a mod shipped an
+        // S2C payload whose handler lives in client init (avp_predator 0.1.5: cloak_state, mud_state). The type
+        // then existed only where a client had run its init — so singleplayer worked, and every join to a
+        // dedicated NeoForge server was refused at negotiation with "channel missing on the server side, but
+        // required on the client". Directions are registered from COMMON init on purpose: collect them here and
+        // flush them in the RegisterPayloadHandlersEvent below, exactly as the Fabric service already does via
+        // PayloadTypeRegistry.
+        getModContainer(mod)
+            .registerPacketDirection(packetDirection);
     }
 
     @Override
@@ -209,6 +217,46 @@ public class BLibNeoForgeRegistryServiceImpl implements BLibRegistryService {
                             handler.type(),
                             BLibCodecs.Stream.toMojang(handler.codec()),
                             (payload, context) -> context.enqueueWork(() -> handler.payloadConsumer().accept(payload, context.player()))
+                        );
+                    }
+                });
+
+            // ⚠⚠ Aug 27 — flush the COMMON-registered packet directions too. NeoForge negotiation requires every
+            // required channel to exist on BOTH sides, and a handler-only flush registers a type only on the dist
+            // whose init created the handler — a client-init S2C handler therefore left the type unknown to
+            // dedicated servers, which refused every 0.1.5 join. Types already covered by a real handler above are
+            // skipped (double registration throws); the rest get the type with a no-op handler — correct on the
+            // dist that only SENDS the payload, since sending needs the type, not the handler.
+            var handlerCoveredTypes = modContainer.getNetworkHandlers()
+                .stream()
+                .map(NetworkHandler::type)
+                .collect(java.util.stream.Collectors.toSet());
+
+            modContainer.getPacketDirections()
+                .forEach(packetDirection -> {
+                    if (handlerCoveredTypes.contains(packetDirection.type())) {
+                        return;
+                    }
+
+                    @SuppressWarnings("unchecked")
+                    var typedDirection = (PacketDirection<CustomPacketPayload>) packetDirection;
+                    var codec = BLibCodecs.Stream.toMojang(typedDirection.codec());
+
+                    switch (typedDirection) {
+                        case PacketDirection.C2S<CustomPacketPayload> ignored -> registrar.playToServer(
+                            typedDirection.type(),
+                            codec,
+                            (payload, context) -> {}
+                        );
+                        case PacketDirection.S2C<CustomPacketPayload> ignored -> registrar.playToClient(
+                            typedDirection.type(),
+                            codec,
+                            (payload, context) -> {}
+                        );
+                        case PacketDirection.BI<CustomPacketPayload> ignored -> registrar.playBidirectional(
+                            typedDirection.type(),
+                            codec,
+                            (payload, context) -> {}
                         );
                     }
                 });

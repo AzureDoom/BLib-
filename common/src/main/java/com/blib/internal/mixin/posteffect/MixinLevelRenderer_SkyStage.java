@@ -29,8 +29,8 @@ import com.blib.internal.client.posteffect.BLibWeatherStage;
 public abstract class MixinLevelRenderer_SkyStage {
 
     /**
-     * FAIL-SAFE FOR BOTH RENDER-STAGE FLAGS, AND IT GUARDS THE WORST FAILURE THIS SYSTEM HAS. They are cleared at the top of every level pass so
-     * it can never survive into the rest of the frame.
+     * FAIL-SAFE FOR BOTH RENDER-STAGE FLAGS, AND IT GUARDS THE WORST FAILURE THIS SYSTEM HAS. They are cleared at the
+     * top of every level pass so it can never survive into the rest of the frame.
      * <p>
      * {@code blib$endSkyStage} runs at {@code renderSky}'s RETURN instructions. Any mod that CANCELS {@code renderSky}
      * at HEAD -- sky replacers do exactly this -- returns through a return instruction inserted by its own callback,
@@ -71,11 +71,11 @@ public abstract class MixinLevelRenderer_SkyStage {
      * hooked into {@code GameRenderer.render}) has no business writing to the auxiliary attachments, yet the colour
      * mask would sit wherever the frame's last patched draw left it, which is ENABLED.
      * <p>
-     * ⭐⭐ THAT MATTERS BECAUSE {@code toggleAuxColorMask} ONLY RUNS FROM {@code ShaderInstance.apply()}. A mod
-     * rendering with its own GL programs — Polytone's post shaders, GPU particles and shadow pass all do — never goes
-     * through it, so BLib never gets the chance to close the mask before those draws. Whatever they leave in
-     * attachments 1-6 is undefined, and undefined data that survives into the next frame is what smears classification
-     * across the view as the camera turns.
+     * ⭐⭐ THAT MATTERS BECAUSE {@code toggleAuxColorMask} ONLY RUNS FROM {@code ShaderInstance.apply()}. A mod rendering
+     * with its own GL programs — Polytone's post shaders, GPU particles and shadow pass all do — never goes through it,
+     * so BLib never gets the chance to close the mask before those draws. Whatever they leave in attachments 1-6 is
+     * undefined, and undefined data that survives into the next frame is what smears classification across the view as
+     * the camera turns.
      * <p>
      * Closing here bounds the writable window to exactly the pass that has a reason to write. Six GL calls.
      */

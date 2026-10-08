@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 
+import com.blib.api.common.pathfinding.v1.cache.BlockChangeLog;
 import com.blib.api.common.pathfinding.v1.cache.TerrainClassificationCache;
 import com.blib.api.common.pathfinding.v1.debug.PathEdgeDebugType;
 import com.blib.api.common.pathfinding.v1.debug.PathRejectionReason;
@@ -116,6 +117,82 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
     private @Nullable LevelReader currentLevel;
 
+    /*
+     * ⭐ Oct 6 - CACHES THAT SURVIVE BETWEEN SEARCHES. /blib perf: neighbour generation was 87.5% of all search time at
+     * 15-24 us per node, and the reason is that every lookup cache below was cleared at the start of EVERY search - a
+     * mob chasing something re-classified the same corridor from scratch each time it re-searched. They are now kept
+     * while all of this holds, and cleared otherwise:
+     *   - same live level as the last search (background searches read a chunk snapshot, so they always start clean
+     *     and leave nothing to reuse);
+     *   - the same feature set and terrain costs (checked once per search, after the finder has applied both);
+     *   - no block changed inside the area the caches cover since the last search ({@link BlockChangeLog});
+     *   - the caches are less than {@value #MAX_REUSE_AGE_TICKS} ticks old and under {@value #MAX_RETAINED_ENTRIES}
+     *     entries, and the area they cover is no wider than {@value #MAX_RETAINED_SPAN} blocks;
+     *   - /gamerule blibPathCacheReuse is on.
+     * Anything uncertain clears them - exactly the old behaviour - so the worst case is the old cost, never a wrong path.
+     */
+    /*
+     * ⚠⚠ FOR THE PLANNED WALL AND CEILING CRAWL (blib_surface_crawl_design) - three rules this reuse depends on:
+     *   1. Every new lookup cache must be cleared in clearSearchCaches() AND counted in cachedEntryCount(). A cache
+     *      missing from the first survives a block change and routes through a wall that is no longer there.
+     *   2. A cache whose answer depends on posture or surface (floor / wall / ceiling) must carry it in its KEY, as
+     *      entityBoxClearanceCache carries the body height. Position alone is not enough once one cell can be
+     *      stood on, clung to from the side, or hung from.
+     *   3. Anything a crawl node reads further than the margin in canKeepCaches (8 + footprint + drop sideways,
+     *      16 + step up, 16 + fall down from the cells the search worked at) must widen that margin.
+     * breakCandidateMemo is keyed by position only because only STANDING ground nodes break blocks today; a crawling
+     * break would need the posture in that key too.
+     */
+    private static final long MAX_REUSE_AGE_TICKS = 600L;
+
+    /*
+     * Memory: a single search already left its caches full until the next one began (clear() ran at the START of a
+     * search), so keeping them is not new memory - letting them pile up across searches would be. These caps keep the
+     * retained size in the range one search used to leave behind; past them the next search starts clean.
+     */
+    private static final int MAX_RETAINED_ENTRIES = 60_000;
+
+    private static final int MAX_RETAINED_OBJECT_ENTRIES = 6_000;
+
+    private static final int MAX_RETAINED_SPAN = 384;
+
+    private @Nullable net.minecraft.world.level.Level retainedLevel;
+
+    private long retainedSequence;
+
+    private long cachesBornAt;
+
+    private long retainedFeatureMask = Long.MIN_VALUE;
+
+    private @Nullable Map<TerrainType, Float> retainedCosts;
+
+    private boolean cacheValidityChecked = true;
+
+    private boolean cachesClearedThisSearch;
+
+    private boolean boundsEmpty = true;
+
+    private int boundsMinX;
+
+    private int boundsMinY;
+
+    private int boundsMinZ;
+
+    private int boundsMaxX;
+
+    private int boundsMaxY;
+
+    private int boundsMaxZ;
+
+    /*
+     * Oct 6 - the block-break decision for one cell, kept for the rest of THIS search only (cleared at every prepare).
+     * A wall cell is reached from up to four sides; each used to re-run the whole break check, policy included.
+     */
+    private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<Object> breakCandidateMemo =
+        new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+
+    private static final Object NO_BREAK_CANDIDATE = new Object();
+
     public UnifiedTerrainEvaluator(TerrainEvaluatorConfig config) {
         this(config, null);
     }
@@ -147,7 +224,26 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     public void prepare(LevelReader level) {
         currentLevel = level;
         blockAccessor.prepare(level);
-        prepareCommon();
+
+        var live = level instanceof net.minecraft.world.level.Level world && !world.isClientSide() ? world : null;
+        var decision = live != null ? cacheDecision(live) : CacheDecision.FIRST;
+        var keep = decision == CacheDecision.REUSED;
+        reusedThisSearch = keep;
+        prepareCommon(keep);
+
+        if (live != null) {
+            if (!keep) {
+                cachesBornAt = live.getGameTime();
+            }
+
+            retainedLevel = live;
+            retainedSequence = BlockChangeLog.sequence(live);
+        } else {
+            retainedLevel = null;
+        }
+
+        cacheValidityChecked = false;
+        com.blib.internal.common.perf.BLibPerfProfiler.recordPathCacheDecision(decision.ordinal());
     }
 
     /**
@@ -157,7 +253,172 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     public void prepareAsync() {
         currentLevel = null;
         blockAccessor.prepareAsync();
-        prepareCommon();
+        prepareCommon(false);
+        retainedLevel = null;
+        reusedThisSearch = false;
+        cacheValidityChecked = true;
+    }
+
+    /**
+     * Oct 7 - why a search did or did not keep the last search's lookups. Reported by /blib perf in this order (the
+     * profiler reads {@code ordinal()}), so a low reuse rate always comes with its reason instead of a guess.
+     */
+    public enum CacheDecision {
+        /** Kept: nothing invalidated them. */
+        REUSED,
+        /** Nothing to keep: this pathfinder's first search, a different level, or the last search covered nothing. */
+        FIRST,
+        /** The blibPathCacheReuse rule is off. */
+        RULE_OFF,
+        /** Older than {@link #MAX_REUSE_AGE_TICKS}. */
+        TOO_OLD,
+        /** The covered area or the cache sizes outgrew their limits. */
+        TOO_BIG,
+        /** A block changed inside the covered area since the last search. */
+        BLOCK_CHANGED,
+        /** Kept at first, then thrown out because this search's features or terrain costs differ. */
+        SETTINGS_CHANGED
+    }
+
+    /** True while this search is running on caches kept from the previous one (settings not yet checked). */
+    private boolean reusedThisSearch;
+
+    /** Oct 6 - may the lookup caches from the last search be used again? See the field notes above. */
+    private CacheDecision cacheDecision(net.minecraft.world.level.Level live) {
+        if (live != retainedLevel || boundsEmpty) {
+            return CacheDecision.FIRST;
+        }
+
+        if (!live.getGameRules().getBoolean(com.blib.mod.common.registry.init.BLibGameRules.PATH_CACHE_REUSE)) {
+            return CacheDecision.RULE_OFF;
+        }
+
+        var age = live.getGameTime() - cachesBornAt;
+
+        if (age < 0L || age > MAX_REUSE_AGE_TICKS) {
+            return CacheDecision.TOO_OLD;
+        }
+
+        if (
+            boundsMaxX - boundsMinX > MAX_RETAINED_SPAN
+                || boundsMaxZ - boundsMinZ > MAX_RETAINED_SPAN
+                || boundsMaxY - boundsMinY > MAX_RETAINED_SPAN
+        ) {
+            return CacheDecision.TOO_BIG;
+        }
+
+        if (
+            cachedEntryCount() > MAX_RETAINED_ENTRIES
+                || entityBoxClearanceCache.size() > MAX_RETAINED_OBJECT_ENTRIES
+                || steppedFootprintSupportCache.size() > MAX_RETAINED_OBJECT_ENTRIES
+                || anySteppedFootprintSupportCache.size() > MAX_RETAINED_OBJECT_ENTRIES
+        ) {
+            return CacheDecision.TOO_BIG;
+        }
+
+        // The caches hold answers about cells AROUND the nodes, not just at them: footprint, body height, step and
+        // drop scans, target projection. The margin covers all of it with room to spare.
+        var horizontal = 8 + footprintCellWidth() + dropOpeningHorizontalDistance();
+        var up = 16 + config.getMaxStepHeight();
+        var down = 16 + config.getMaxFallDistance();
+
+        var changed = BlockChangeLog.changedSince(
+            live,
+            retainedSequence,
+            boundsMinX - horizontal,
+            boundsMinY - down,
+            boundsMinZ - horizontal,
+            boundsMaxX + horizontal,
+            boundsMaxY + up,
+            boundsMaxZ + horizontal
+        );
+
+        return changed ? CacheDecision.BLOCK_CHANGED : CacheDecision.REUSED;
+    }
+
+    private long cachedEntryCount() {
+        return (long) feetOpenCache.size()
+            + waterBlockCache.size()
+            + groundSupportCache.size()
+            + supportTopCache.size()
+            + fullCollisionBlockCache.size()
+            + footprintNodeSupportCache.size()
+            + waterFootprintCache.size()
+            + dropSupportCache.size()
+            + wallProximityCache.size()
+            + supportTopSearchCache.size()
+            + stepDownLandingScanCache.size()
+            + dropOpeningLandingScanCache.size()
+            + entityBoxClearanceCache.size()
+            + steppedFootprintSupportCache.size()
+            + anySteppedFootprintSupportCache.size();
+    }
+
+    /**
+     * Oct 6 - once per search, after the finder has applied this search's features and excluded terrains: caches built
+     * under a different feature set or different terrain costs are thrown away here.
+     */
+    private void ensureCachesMatchThisSearch() {
+        if (cacheValidityChecked) {
+            return;
+        }
+
+        cacheValidityChecked = true;
+        var mask = features.toMask();
+
+        if (mask != retainedFeatureMask || retainedCosts == null || !retainedCosts.equals(snapshotCosts)) {
+            if (!cachesClearedThisSearch) {
+                clearSearchCaches();
+                resetBounds();
+            }
+
+            if (reusedThisSearch) {
+                com.blib.internal.common.perf.BLibPerfProfiler.recordPathCacheSettingsMismatch();
+                reusedThisSearch = false;
+            }
+
+            // Fresh caches from here: their age counts from now, not from when the thrown-out set was born.
+            if (retainedLevel != null) {
+                cachesBornAt = retainedLevel.getGameTime();
+            }
+
+            retainedFeatureMask = mask;
+            retainedCosts = new EnumMap<>(TerrainType.class);
+            retainedCosts.putAll(snapshotCosts);
+        }
+    }
+
+    private void resetBounds() {
+        boundsEmpty = true;
+    }
+
+    /** Grows the area the caches cover to include one cell the search is working at. */
+    private void noteBounds(int x, int y, int z) {
+        if (boundsEmpty) {
+            boundsMinX = boundsMaxX = x;
+            boundsMinY = boundsMaxY = y;
+            boundsMinZ = boundsMaxZ = z;
+            boundsEmpty = false;
+            return;
+        }
+
+        if (x < boundsMinX) {
+            boundsMinX = x;
+        } else if (x > boundsMaxX) {
+            boundsMaxX = x;
+        }
+
+        if (y < boundsMinY) {
+            boundsMinY = y;
+        } else if (y > boundsMaxY) {
+            boundsMaxY = y;
+        }
+
+        if (z < boundsMinZ) {
+            boundsMinZ = z;
+        } else if (z > boundsMaxZ) {
+            boundsMaxZ = z;
+        }
     }
 
     /**
@@ -185,10 +446,16 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         this.features = features;
     }
 
-    private void prepareCommon() {
+    private void prepareCommon(boolean keepCaches) {
         nodePool.reset();
         snapshotCosts.clear();
-        clearSearchCaches();
+        breakCandidateMemo.clear();
+        cachesClearedThisSearch = !keepCaches;
+
+        if (!keepCaches) {
+            clearSearchCaches();
+            resetBounds();
+        }
 
         for (var terrainType : config.getSupportedTerrains()) {
             snapshotCosts.put(terrainType, config.getCost(terrainType));
@@ -215,16 +482,22 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
     @Override
     public PathNode getStartNode(BlockPos entityPos) {
+        ensureCachesMatchThisSearch();
+        noteBounds(entityPos.getX(), entityPos.getY(), entityPos.getZ());
         return getOrCreateStartNode(entityPos);
     }
 
     @Override
     public PathNode getGoalNode(BlockPos targetPos) {
+        ensureCachesMatchThisSearch();
+        noteBounds(targetPos.getX(), targetPos.getY(), targetPos.getZ());
         return getOrCreateResolvedNode(targetPos, 0);
     }
 
     @Override
     public PathNode getGoalNode(BlockPos startPos, BlockPos targetPos) {
+        ensureCachesMatchThisSearch();
+        noteBounds(targetPos.getX(), targetPos.getY(), targetPos.getZ());
         var maxStepDown = targetPos.getY() < startPos.getY() ? config.getMaxFallDistance() : 0;
 
         return getOrCreateResolvedNode(targetPos, maxStepDown);
@@ -237,6 +510,9 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
     @Override
     public int getNeighbors(PathNode node, @Nullable PathNode previous, PathNode[] neighbors) {
+        ensureCachesMatchThisSearch();
+        noteBounds(node.getX(), node.getY(), node.getZ());
+
         if (node.getTerrainType() == TerrainType.GROUND && snapshotCosts.containsKey(TerrainType.GROUND)) {
             return getGroundNeighbors(node, previous, neighbors);
         }
@@ -260,6 +536,9 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
     @Override
     public int getPredecessors(PathNode node, @Nullable PathNode previous, PathNode[] predecessors) {
+        ensureCachesMatchThisSearch();
+        noteBounds(node.getX(), node.getY(), node.getZ());
+
         var count = appendHorizontalPredecessorCandidates(node, previous, predecessors, 0, CARDINAL_OFFSETS);
 
         if (features.diagonalMovement()) {
@@ -269,6 +548,8 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         if (usesWaterVerticalSwim()) {
             count = appendWaterVerticalPredecessorCandidates(node, previous, predecessors, count);
         }
+
+        count = appendClimbVerticalPredecessorCandidates(node, previous, predecessors, count);
 
         if (features.dropDownOpenings()) {
             count = appendDropOpeningPredecessorCandidates(node, previous, predecessors, count);
@@ -283,6 +564,8 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         if (features.diagonalMovement()) {
             count = appendGroundNeighbors(node, previous, neighbors, count, DIAGONAL_OFFSETS);
         }
+
+        count = appendClimbVerticalNeighbors(node, previous, neighbors, count);
 
         if (features.dropDownOpenings()) {
             count = appendDropOpeningNeighbors(node, previous, neighbors, count);
@@ -314,6 +597,14 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     public void cleanup() {
         currentLevel = null;
         blockAccessor.cleanup();
+    }
+
+    /**
+     * Drops the chunk snapshot held by this evaluator's block accessor. See {@link BlockAccessor#releaseChunks()} —
+     * only the pathfinder calls this, and only once it knows no search is still reading the snapshot.
+     */
+    public void releaseChunks() {
+        blockAccessor.releaseChunks();
     }
 
     private boolean usesWaterPathfinding() {
@@ -1541,7 +1832,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
                 for (var z = minZ; z <= maxZ; z++) {
                     var state = blockAccessor.getBlockState(x, y, z);
 
-                    if (isDoorPassable(state)) {
+                    if (isDoorPassable(state) || blockAccessor.isClimbable(state)) {
                         continue;
                     }
 
@@ -1757,7 +2048,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
                 for (var z = minZ; z <= maxZ; z++) {
                     var state = blockAccessor.getBlockState(x, y, z);
 
-                    if (isDoorPassable(state)) {
+                    if (isDoorPassable(state) || blockAccessor.isClimbable(state)) {
                         continue;
                     }
 
@@ -2008,7 +2299,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         }
 
         var posture = PathPosture.STANDING;
-        var candidate = collectGroundBlockBreakCandidate(x, y, z, posture);
+        var candidate = memoizedGroundBlockBreakCandidate(x, y, z, posture);
 
         if (candidate == null || candidate.plan().isEmpty()) {
             return null;
@@ -2019,6 +2310,28 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         markFeatureUsed(PathfindingFeature.BLOCK_BREAKING);
 
         return node;
+    }
+
+    /**
+     * Oct 6 - the break decision for a cell, worked out once per search. Without a debug recorder only: with one,
+     * every rejection must be recorded where it happens, so the decision is made fresh each time as before.
+     */
+    private @Nullable BlockBreakCandidate memoizedGroundBlockBreakCandidate(int x, int y, int z, PathPosture posture) {
+        if (debugRecorder != null) {
+            return collectGroundBlockBreakCandidate(x, y, z, posture);
+        }
+
+        var key = BlockPos.asLong(x, y, z);
+        var memo = breakCandidateMemo.get(key);
+
+        if (memo != null) {
+            return memo == NO_BREAK_CANDIDATE ? null : (BlockBreakCandidate) memo;
+        }
+
+        var candidate = collectGroundBlockBreakCandidate(x, y, z, posture);
+        breakCandidateMemo.put(key, candidate != null ? candidate : NO_BREAK_CANDIDATE);
+
+        return candidate;
     }
 
     private boolean isCardinalHorizontalMove(int dx, int dz) {
@@ -2068,7 +2381,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     ) {
         var state = blockAccessor.getBlockState(x, y, z);
 
-        if (isDoorPassable(state)) {
+        if (isDoorPassable(state) || blockAccessor.isClimbable(state)) {
             return null;
         }
 
@@ -2085,7 +2398,11 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         var pos = new BlockPos(x, y, z);
 
         if (!breakConfig.canBreak(level, pos, state)) {
-            reject(blockBreakRejectionReason(level, pos, state, breakConfig), x, y, z);
+            // Oct 6 - working out WHY re-runs the break policy; only a debug recorder wants the answer.
+            if (debugRecorder != null) {
+                reject(blockBreakRejectionReason(level, pos, state, breakConfig), x, y, z);
+            }
+
             return null;
         }
 
@@ -2119,7 +2436,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
                 for (var z = minZ; z <= maxZ; z++) {
                     var state = blockAccessor.getBlockState(x, y, z);
 
-                    if (isDoorPassable(state)) {
+                    if (isDoorPassable(state) || blockAccessor.isClimbable(state)) {
                         continue;
                     }
 
@@ -2135,8 +2452,11 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
                     }
 
                     var blockPos = new BlockPos(x, y, z);
-
-                    if (!intersectsEntityBox(shape.toAabbs(), blockPos, entityBox)) {
+                    // Oct 6 - a full cube inside the scanned range always overlaps the body (see isEntityBoxClear).
+                    if (
+                        shape != net.minecraft.world.phys.shapes.Shapes.block()
+                            && !intersectsEntityBox(shape.toAabbs(), blockPos, entityBox)
+                    ) {
                         continue;
                     }
 
@@ -2146,7 +2466,10 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
                     }
 
                     if (!breakConfig.canBreak(level, blockPos, state)) {
-                        reject(blockBreakRejectionReason(level, blockPos, state, breakConfig), nodeX, nodeY, nodeZ);
+                        if (debugRecorder != null) {
+                            reject(blockBreakRejectionReason(level, blockPos, state, breakConfig), nodeX, nodeY, nodeZ);
+                        }
+
                         return null;
                     }
 
@@ -2493,7 +2816,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     private boolean isWaterEntryFallCellPassable(int x, int y, int z) {
         var state = blockAccessor.getBlockState(x, y, z);
 
-        if (isDoorPassable(state)) {
+        if (isDoorPassable(state) || blockAccessor.isClimbable(state)) {
             return true;
         }
 
@@ -2518,7 +2841,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     private boolean isFeetOpenUncached(int x, int y, int z) {
         var state = blockAccessor.getBlockState(x, y, z);
 
-        if (isDoorPassable(state)) {
+        if (isDoorPassable(state) || blockAccessor.isClimbable(state)) {
             return true;
         }
 
@@ -2579,7 +2902,101 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         return blockAccessor.isSolid(state) && !blockAccessor.isLiquid(state);
     }
 
+    // ---------------------------------------------------------------------------------------------------------------
+    // Climbables: ladders, vines, scaffolding. Vanilla's WalkNodeEvaluator treats them as walkable; the BLib planner
+    // had no idea they existed, so a ladder column was a wall and a vine shaft was a hole, and every mob on this
+    // navigator — yautja and xenomorph alike — fought them instead of using them.
+    //
+    // A "climb column" node is one whose feet block is climbable, OR whose block below is (standing on the top rung,
+    // about to step onto the ledge). Such nodes gain vertical neighbours one block up and down, validated exactly
+    // like any ground node (clearance + support, both climbable-aware above). The movement side is vanilla's own
+    // climbable physics: PathMovementController jumps the mob while its next waypoint is above it on a climbable,
+    // which is the trigger LivingEntity.travel uses to lift a body up a ladder at 0.2 per tick.
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private boolean isClimbableFeet(int x, int y, int z) {
+        return blockAccessor.isClimbable(blockAccessor.getBlockState(x, y, z));
+    }
+
+    private boolean isClimbColumn(int x, int y, int z) {
+        return isClimbableFeet(x, y, z) || isClimbableFeet(x, y - 1, z);
+    }
+
+    private int appendClimbVerticalNeighbors(
+        PathNode node,
+        @Nullable PathNode previous,
+        PathNode[] neighbors,
+        int count
+    ) {
+        if (!isClimbColumn(node.getX(), node.getY(), node.getZ())) {
+            return count;
+        }
+
+        count = appendClimbVerticalNeighbor(node, previous, neighbors, count, 1);
+
+        return appendClimbVerticalNeighbor(node, previous, neighbors, count, -1);
+    }
+
+    private int appendClimbVerticalNeighbor(
+        PathNode node,
+        @Nullable PathNode previous,
+        PathNode[] neighbors,
+        int count,
+        int dy
+    ) {
+        var x = node.getX();
+        var y = node.getY() + dy;
+        var z = node.getZ();
+
+        if (isParentNode(previous, x, y, z, TerrainType.GROUND, PathPosture.STANDING)) {
+            markFeatureUsed(PathfindingFeature.PARENT_EDGE_PRUNING);
+            return count;
+        }
+
+        if (!isClimbColumn(x, y, z)) {
+            return count;
+        }
+
+        beginEdgeAttempt(node, x, y, z, dy > 0 ? PathEdgeDebugType.STEP_UP : PathEdgeDebugType.STEP_DOWN);
+
+        var candidate = tryCreateGroundNode(x, y, z, PathPosture.STANDING);
+
+        finishEdgeAttempt(candidate != null);
+
+        if (candidate == null) {
+            return count;
+        }
+
+        return appendNeighbor(
+            neighbors,
+            count,
+            previous,
+            markMovementFeatureUsed(candidate, 0, 0, dy > 0 ? PathfindingFeature.STEP_UP : PathfindingFeature.STEP_DOWN)
+        );
+    }
+
+    private int appendClimbVerticalPredecessorCandidates(
+        PathNode node,
+        @Nullable PathNode previous,
+        PathNode[] predecessors,
+        int count
+    ) {
+        if (!isClimbColumn(node.getX(), node.getY(), node.getZ())) {
+            return count;
+        }
+
+        count = appendPredecessorCandidate(node, previous, predecessors, count, node.getX(), node.getY() - 1, node.getZ());
+
+        return appendPredecessorCandidate(node, previous, predecessors, count, node.getX(), node.getY() + 1, node.getZ());
+    }
+
     private boolean hasNodeSupport(int x, int y, int z) {
+        // ⚠⚠ FEET IN A CLIMBABLE = SUPPORTED. A body on a ladder or in vines is held up by it; without this every rung
+        // was "open but unsupported", i.e. a hole, and no route ever went up or down a shaft.
+        if (isClimbableFeet(x, y, z)) {
+            return true;
+        }
+
         if (!usesFootprintClearance()) {
             return hasGroundSupport(x, y, z);
         }

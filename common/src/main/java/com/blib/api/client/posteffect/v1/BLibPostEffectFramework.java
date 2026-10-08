@@ -1,8 +1,8 @@
 package com.blib.api.client.posteffect.v1;
 
 import com.blib.internal.client.posteffect.BLibBackgroundEntityRenderState;
-import com.blib.internal.client.posteffect.BLibIrisCompat;
 import com.blib.internal.client.posteffect.BLibIrisClassificationPass;
+import com.blib.internal.client.posteffect.BLibIrisCompat;
 import com.blib.internal.client.posteffect.BLibMaterialIdRenderState;
 
 /**

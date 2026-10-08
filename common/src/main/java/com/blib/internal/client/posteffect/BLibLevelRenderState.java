@@ -34,6 +34,10 @@ public final class BLibLevelRenderState {
     }
 
     public static void capture(Matrix4f frustumMatrix, Matrix4f levelProjectionMatrix) {
+        // ⚠ Aug 28 — the level pass opens here: aux draw buffers become writable for exactly this window. Closed
+        // by BLibPostEffectPipeline.run once the mask is consumed. See BLibMainTargetMRT.setLevelPassActive.
+        com.blib.internal.client.posteffect.BLibMainTargetMRT.setLevelPassActive(true);
+
         viewMatrix.set(frustumMatrix);
         viewMatrixInverse.set(frustumMatrix).invert();
         projectionMatrix.set(levelProjectionMatrix);

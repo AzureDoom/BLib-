@@ -56,9 +56,44 @@ public final class BLibIrisCompat {
      * <p>
      * ⚠ Deliberately NOT cached — packs are switched on and off mid-session and the answer has to follow.
      */
+    /**
+     * ⚠ Aug 28 — VEIL STAND-DOWN. Veil (shipped jar-in-jar by packs like Sable) is a full rendering pipeline like Iris,
+     * and running the MRT vision machinery entangled with it produced thermal-looking worlds without the hotkey and
+     * stuck GUI item ghosts. Until a measured Veil integration exists (the Iris playbook), Veil present = foreign
+     * pipeline = the same stand-down Iris got before stage 1: vision and scene capture treat the pipeline as active and
+     * step aside.
+     */
+    // ⚠⚠ NOT a static final — this class first loads from the MRT mixin DURING MainTarget construction, inside
+    // Minecraft's constructor, BEFORE NeoForge's ModList exists. An eager isModLoaded there NPE'd and killed every
+    // NeoForge boot (caught by his Sable test, 28 Aug). Lazy and window-safe instead: answer false while the
+    // loader is not ready, resolve once it is, and never cache a failure so the first post-ready call gets the
+    // real answer.
+    private static Boolean veilLoaded;
+
+    /** Public for the MRT write-window, which must scope its restrictions to Veil-present installs only. */
+    public static boolean isVeilLoaded() {
+        if (veilLoaded == null) {
+            try {
+                veilLoaded = com.blib.api.BLibAPI.isModLoaded("veil");
+            } catch (Throwable notReadyYet) {
+                return false;
+            }
+        }
+
+        return veilLoaded;
+    }
+
     public static boolean isShaderPackActive() {
         if (!isShaderModActive()) {
             return false;
+        }
+
+        // ⚠⚠ Aug 28, VEIL NATIVE ENABLE — the probe measured Veil (Sable 2.0.5) leaving vanilla's main target in
+        // place, depth live, no active post pipelines: the frame situation is vanilla, so the NATIVE vision path
+        // runs, protected by the level-pass aux-write window in BLibMainTargetMRT. The stand-down remains one JVM
+        // arg away: -Dblib.veil.native=false restores it if the field disagrees with the lab.
+        if (isVeilLoaded() && "false".equals(System.getProperty("blib.veil.native"))) {
+            return true;
         }
 
         return BLibInternalClientServices.IRIS_COMPAT.isShaderPackInUse();

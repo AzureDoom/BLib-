@@ -10,10 +10,10 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
 import org.jetbrains.annotations.ApiStatus;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.BufferUtils;
 
 import java.util.Comparator;
 import java.util.HashSet;
@@ -44,9 +44,9 @@ public final class BLibPostEffectPipeline {
      * it stays, because it is the ONLY instrument that reaches a user's machine, and it is what identified a mask full
      * of values that are not categories at all.
      * <p>
-     * READING IT: valid categories are 255 entity, 223 held item, 128 terrain, 64 particle, 16 celestial, 0 sky.
-     * ⭐ ANYTHING ELSE MEANS THE MASK ITSELF IS WRONG, and no amount of shader tuning will help — look for whatever
-     * is writing to or resizing the attachments. Fog start/end are logged beside it because a "no fog" resource pack
+     * READING IT: valid categories are 255 entity, 223 held item, 128 terrain, 64 particle, 16 celestial, 0 sky. ⭐
+     * ANYTHING ELSE MEANS THE MASK ITSELF IS WRONG, and no amount of shader tuning will help — look for whatever is
+     * writing to or resizing the attachments. Fog start/end are logged beside it because a "no fog" resource pack
      * (Polytone, {@code fog_radius: 10000000}) was confirmed to break the vision, and this is the cheapest way to see
      * whether absurd fog distances are reaching the shaders.
      */
@@ -136,6 +136,13 @@ public final class BLibPostEffectPipeline {
     }
 
     public static void run(DeltaTracker deltaTracker) {
+        // ⚠ Aug 28 — whatever happens below (vision active, inactive, disabled, foreign pipeline), the level-pass
+        // aux-write window CLOSES here: everything after this point in the frame is UI-era rendering, and its aux
+        // outputs must be discarded. See BLibMainTargetMRT.setLevelPassActive.
+        try {
+            com.blib.internal.client.posteffect.BLibMainTargetMRT.setLevelPassActive(false);
+        } catch (Throwable ignored) {}
+
         // ⭐⭐ STAGE 2: THE PIPELINE NO LONGER STANDS DOWN JUST BECAUSE A SHADER PACK IS RUNNING.
         // BLibIrisClassificationPass draws the classification into a private framebuffer during the level pass, and
         // BLibMainTargetMRT's accessors hand back those same textures, so every sampler binding below works unchanged.

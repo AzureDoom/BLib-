@@ -1,16 +1,13 @@
 BLib — Third-Party Components
 =============================
 
-BLib bundles the following third-party libraries inside its jar using NeoForge/Fabric
-jar-in-jar. Their CODE is exactly as published upstream; only their jar manifests have been
-filled in - see "Note on metadata" below.
+BLib bundles the following libraries inside its jar using NeoForge/Fabric jar-in-jar.
 
-  com.just:just-core
-  com.just:just-codec
-  com.just:just-goap
+  com.just:just-core   0.1.0
+  com.just:just-codec  0.1.0
+  com.just:just-goap   0.4.1
 
-      Origin:   https://maven.bvanseghi.dev/just
-      Author:   bvanseghi
+      Author:   Boston Vanseghi (bvanseghi) - Copyright (c) 2023 Boston Vanseghi
       Purpose:  just-core provides general functional utilities (Option and friends) used
                 throughout BLib's API. just-codec provides the schema-based serialisation
                 layer behind BLib's NBT and network codecs. just-goap provides the
@@ -20,11 +17,34 @@ filled in - see "Note on metadata" below.
       "Bundled-Dependencies", generated from the same build properties that select the
       jar-in-jar artifacts, so the two can never disagree.
 
+Maintenance and permission
+--------------------------
+On 2026-09-26 the author retired the Just-Collective libraries and gave them to the AVP
+team to maintain and modify. The copyright notice above is kept as the author's. Each
+bundled jar's manifest names him as vendor and records the AVP team as maintainer.
+
+WHAT IS CHANGED, AND WHAT IS NOT
+--------------------------------
+just-core 0.1.0 and just-codec 0.1.0: the class files are exactly as the author published
+them. Only META-INF/MANIFEST.MF was filled in, because the originals shipped with nothing
+but "Manifest-Version: 1.0".
+
+just-goap 0.4.1: an AVP build. The author no longer had the 0.4.0 source, so it was
+recovered from his published 0.4.0 jar and checked against it class by class before any
+change was made. 0.4.1 then changes seven classes and adds two:
+
+  - a sensor reading of null is remembered for the rest of the tick instead of being
+    sensed again on every read;
+  - a sensor can opt in to keeping its value for several ticks (Sensors.every);
+  - debug timing labels and trace-log arguments are no longer built when debugging is off.
+
+Both sensing changes are switched per world by the game rule
+blibGoapSensingOptimizations (default true). Setting it to false restores the exact
+0.4.0 behaviour. The source of 0.4.1 is published alongside it as just-goap-0.4.1-sources.
+
 Note on metadata
 ----------------
-These upstream artifacts are published with a minimal manifest and POM — they carry no
-Implementation-Title, vendor, licence or SCM entries. That is a gap in their publishing
-configuration, not an indication of obfuscated or concealed code:
+None of these libraries is obfuscated:
 
   - package and class names are complete and readable (com.just.codec.schema.CodecSchema,
     com.just.core.functional.option.Option, com.just.ai.goap.Agent, and so on)
@@ -33,25 +53,13 @@ configuration, not an indication of obfuscated or concealed code:
   - there is no reflection-based loading, no runtime class definition, no encryption and
     no string packing in these libraries or in BLib itself
 
-WHAT BLIB CHANGES, AND WHAT IT DOES NOT
----------------------------------------
-No class file in these libraries is altered in any way. The only modification is that each
-bundled jar's META-INF/MANIFEST.MF - which upstream ships containing nothing but
-"Manifest-Version: 1.0" - has been filled in so the library states its own name, version and
-author. Those manifests attribute the work to bvanseghi, not to BLib, and each carries a
-Repackaged-By entry recording that BLib added the metadata.
-
-This is done because the upstream artifacts cannot be republished by this project, and three
-unnamed jars nested inside a mod is a pattern that invites exactly the suspicion this file
-exists to answer.
-
-Class counts are unchanged by the process: just-core 118, just-codec 82, just-goap 129.
+Class counts: just-core 118, just-codec 82, just-goap 131.
 
 Anyone wishing to inspect them can extract them from this jar at:
 
-    META-INF/jarjar/just-core-<version>.jar
-    META-INF/jarjar/just-codec-<version>.jar
-    META-INF/jarjar/just-goap-<version>.jar
+    META-INF/jarjar/just-core-<version>.jar      (NeoForge)
+    META-INF/jars/just-core-<version>.jar        (Fabric)
+    and likewise for just-codec and just-goap.
 
 BLib itself
 -----------

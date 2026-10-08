@@ -47,6 +47,8 @@ public abstract class AzRendererPipelineContext<K, T> {
 
     private float cubeInflate;
 
+    private boolean skipFlatCubes;
+
     protected static final Map<ResourceLocation, IntIntPair> TEXTURE_DIMENSIONS_CACHE =
         new Object2ObjectOpenHashMap<>();
 
@@ -195,6 +197,21 @@ public abstract class AzRendererPipelineContext<K, T> {
 
     public void setCubeInflate(float cubeInflate) {
         this.cubeInflate = cubeInflate;
+    }
+
+    /**
+     * When set, {@code AzModelRenderer} skips every cube that has a zero-length side - the single quads (planes)
+     * artists use for spines, fins, whiskers and the like. Meant for overlay passes that re-draw the model with a
+     * second texture: a mesh or glow stretched over a lone plane reads as a stray sheet in the air rather than a
+     * covering. Off by default; an overlay sets it around its {@code reRender} and restores it after, exactly as it
+     * does with the render type.
+     */
+    public boolean skipFlatCubes() {
+        return skipFlatCubes;
+    }
+
+    public void setSkipFlatCubes(boolean skipFlatCubes) {
+        this.skipFlatCubes = skipFlatCubes;
     }
 
     public IntIntPair computeTextureSize(ResourceLocation texture) {

@@ -22,8 +22,8 @@ import com.blib.mod.BLib;
  * <ol>
  * <li>BLib still patches all twelve vanilla entity shaders while a pack is loaded, so the shaders that produce the
  * classification are compiled and ready \u2014 they simply never get bound during Iris's own passes.</li>
- * <li>Iris does not intercept shader binding, on either the {@code RenderSystem} route or the raw
- * {@code glUseProgram} route: 162 samples with a pack live, every one bound the program that was asked for.</li>
+ * <li>Iris does not intercept shader binding, on either the {@code RenderSystem} route or the raw {@code glUseProgram}
+ * route: 162 samples with a pack live, every one bound the program that was asked for.</li>
  * <li>Vanilla's own depth texture still holds real scene depth under a pack, because Iris hands it to its own render
  * targets. So it can be attached here directly and entities depth-test against terrain for free.</li>
  * </ol>
@@ -31,9 +31,9 @@ import com.blib.mod.BLib;
  * output at location 0; discarding it is what keeps this pass from ever touching the pack's image. Only attachments
  * 1-6, the classification data, are kept.
  * <p>
- * \u26a0 The six textures are NOT owned here \u2014 they belong to {@link BLibMainTargetMRT}, which allocates them through
- * {@code attachInternal} so that their formats and filtering cannot drift from the no-pack path. This class owns only
- * the framebuffer object.
+ * \u26a0 The six textures are NOT owned here \u2014 they belong to {@link BLibMainTargetMRT}, which allocates them
+ * through {@code attachInternal} so that their formats and filtering cannot drift from the no-pack path. This class
+ * owns only the framebuffer object.
  */
 @ApiStatus.Internal
 public final class BLibIrisAuxTarget {
@@ -59,16 +59,15 @@ public final class BLibIrisAuxTarget {
     /**
      * OUR OWN depth texture. Deliberately not the main target's.
      * <p>
-     * ⭐⭐ BORROWING THE LIVE TEXTURE WORKS AT THE END OF THE LEVEL PASS AND FAILS BEFORE TRANSLUCENT TERRAIN. By the
-     * end Iris has finished with it; earlier it is still attached to Iris's own framebuffer, and having the same depth
+     * ⭐⭐ BORROWING THE LIVE TEXTURE WORKS AT THE END OF THE LEVEL PASS AND FAILS BEFORE TRANSLUCENT TERRAIN. By the end
+     * Iris has finished with it; earlier it is still attached to Iris's own framebuffer, and having the same depth
      * texture attached to two framebuffers while one of them is being drawn into is precisely where drivers stop
      * behaving predictably. Measured at the early point: depth reads fine, bindings restore fine, the framebuffer is
      * complete, no exception is thrown — and the pass writes ZERO pixels. A private copy removes the sharing entirely.
      */
     private int depthTextureId = -1;
 
-    private BLibIrisAuxTarget() {
-    }
+    private BLibIrisAuxTarget() {}
 
     public boolean isReady() {
         return frameBufferId != -1;
@@ -79,13 +78,13 @@ public final class BLibIrisAuxTarget {
     }
 
     /**
-     * Creates or revalidates the framebuffer for the current main-target size, returning {@code true} if it is ready
-     * to be bound.
+     * Creates or revalidates the framebuffer for the current main-target size, returning {@code true} if it is ready to
+     * be bound.
      * <p>
-     * \u26a0 A resize, a pack toggle, or a resource reload can all replace the main target and its depth texture. Rather
-     * than trying to hook every one of those, this compares the size and the borrowed depth texture id each call and
-     * rebuilds when either moved \u2014 the same "re-ask the question rather than trust an event" discipline that the
-     * main-target reconcile needed.
+     * \u26a0 A resize, a pack toggle, or a resource reload can all replace the main target and its depth texture.
+     * Rather than trying to hook every one of those, this compares the size and the borrowed depth texture id each call
+     * and rebuilds when either moved \u2014 the same "re-ask the question rather than trust an event" discipline that
+     * the main-target reconcile needed.
      */
     public boolean ensure() {
         var mainTarget = Minecraft.getInstance().getMainRenderTarget();
@@ -94,9 +93,11 @@ public final class BLibIrisAuxTarget {
             return false;
         }
 
-        if (frameBufferId != -1
-            && width == mainTarget.viewWidth
-            && height == mainTarget.viewHeight) {
+        if (
+            frameBufferId != -1
+                && width == mainTarget.viewWidth
+                && height == mainTarget.viewHeight
+        ) {
             return true;
         }
 
@@ -219,8 +220,8 @@ public final class BLibIrisAuxTarget {
     /**
      * Drops the framebuffer and the textures on it.
      * <p>
-     * \u26a0 The DEPTH texture is borrowed and must never be released here \u2014 it belongs to the main render target, and
-     * deleting it would take vanilla's depth buffer out from under Iris.
+     * \u26a0 The DEPTH texture is borrowed and must never be released here \u2014 it belongs to the main render target,
+     * and deleting it would take vanilla's depth buffer out from under Iris.
      */
     public void invalidate() {
         if (frameBufferId != -1) {

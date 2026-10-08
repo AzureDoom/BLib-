@@ -8,8 +8,8 @@ import com.blib.api.client.animation.v1.track.AzAnimationTrack;
 import com.blib.api.common.spatial.v1.Axis;
 import com.blib.internal.client.animation.primitive.AzQueuedAnimation;
 import com.blib.internal.client.animation.track.AzBoneAnimationQueueCache;
-import com.blib.internal.common.molang.MolangParser;
 import com.blib.internal.common.molang.MolangQueries;
+import com.blib.internal.common.molang.MolangVariableRef;
 import com.blib.internal.common.molang.math.IValue;
 
 public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
@@ -26,13 +26,20 @@ public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
         this.boneAnimationQueueCache = boneAnimationQueueCache;
     }
 
+    private static final MolangVariableRef ANIM_TIME_REF = new MolangVariableRef(MolangQueries.ANIM_TIME);
+
+    /** The adjusted tick of the frame being executed, read by {@link #animTimeSupplier}. */
+    private double currentAdjustedTick;
+
+    private final java.util.function.DoubleSupplier animTimeSupplier = () -> currentAdjustedTick / 20d;
+
     public void execute(@NotNull AzQueuedAnimation currentAnimation, T animatable, boolean crashWhenCantFindBone) {
         var keyframeCallbackHandler = animationTrack.keyframeManager().keyframeCallbackHandler();
         var trackTimer = animationTrack.trackTimer();
 
-        final double finalAdjustedTick = trackTimer.getAdjustedTick();
-
-        MolangParser.INSTANCE.setMemoizedValue(MolangQueries.ANIM_TIME, () -> finalAdjustedTick / 20d);
+        // AzureLib 3.1.13 port: bound through a reference resolved once to a supplier created once - no allocation.
+        currentAdjustedTick = trackTimer.getAdjustedTick();
+        ANIM_TIME_REF.setMemoized(animTimeSupplier);
 
         for (var boneAnimation : currentAnimation.animation().boneAnimations()) {
             var boneAnimationQueue = boneAnimationQueueCache.getOrNull(boneAnimation.boneName());

@@ -1,0 +1,31 @@
+FALLBACK - going back to the original just-goap 0.4.0
+=====================================================
+
+Quick switch, no rebuild (any world, live):
+
+    /gamerule blibGoapSensingOptimizations false
+
+That restores the exact 0.4.0 sensing behaviour on the next tick. The only 0.4.1
+difference left running is that debug timing labels are not built while debugging is
+off, which changes no behaviour.
+
+
+Full switch back to the original 0.4.0 jar (two edits, then rebuild BLib):
+
+1. gradle.properties
+       just_goap_version             = 0.4.1
+   change to
+       just_goap_version             = 0.4.0
+
+2. common/src/main/java/com/blib/api/common/goap/v1/LivingEntityAgent.java
+   delete the statement that starts with
+       agent.setSensingOptimizationsEnabled(
+   (four lines, directly above "agent.update(graph);") and the import line
+       import com.blib.mod.common.registry.init.BLibGameRules;
+
+That is the only BLib code that uses 0.4.1 API - checked by compiling every BLib file
+that touches just-goap against the original 0.4.0 jar. The original 0.4.0 jar is kept in
+this folder (com/just/just-goap/0.4.0/), so nothing needs downloading.
+
+Sensor refresh windows (Sensors.every) in any AVP mod would also have to be removed
+before those mods build against 0.4.0.

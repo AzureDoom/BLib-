@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.just</groupId>
+  <artifactId>just-codec</artifactId>
+  <version>0.1.0</version>
+  <name>just-codec</name>
+  <description>Schema-based serialisation.</description>
+  <licenses>
+    <license>
+      <name>All Rights Reserved (c) 2023 Boston Vanseghi - maintained by the AVP team with the author's permission since 2026-09-26</name>
+    </license>
+  </licenses>
+  <dependencies>
+    <dependency>
+      <groupId>com.just</groupId>
+      <artifactId>just-core</artifactId>
+      <version>0.1.0</version>
+      <scope>compile</scope>
+    </dependency>
+  </dependencies>
+</project>

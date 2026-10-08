@@ -70,6 +70,10 @@ dependencies {
 
     compileOnly "maven.modrinth:shoulder-surfing-reloaded:1.21.1-4.11.0+fabric"
     compileOnly "maven.modrinth:xaeros-world-map:neoforge-1.21.1-1.40.11"
+    // GeckoLib, compile-only, for AzForeignArmor (armor from GeckoLib mods on Az entities). Referenced only inside a
+    // class that is never loaded unless the geckolib mod is present; nothing is bundled. The NeoForge flavour is used
+    // in every module for the same reason the Xaero jar above is: all three modules compile against mojang mappings.
+    compileOnly files("${rootProject.projectDir}/libs/geckolib-neoforge-1.21.1-4.9.3.jar")
 
     // Here in case of any issues
     //modImplementation "maven.modrinth:modernfix:5.21.0+mc1.21.1"
@@ -190,4 +194,4 @@ if (keyPropsFile.exists()) {
             }
         }
     }
-}
+}

@@ -1,17 +1,19 @@
 package com.blib.internal.client.posteffect;
 
-import org.jetbrains.annotations.ApiStatus;
 import net.minecraft.client.Minecraft;
+import org.jetbrains.annotations.ApiStatus;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL40;
 
-import com.blib.mod.BLib;
-
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+
+import com.blib.api.BLibAPI;
+import com.blib.api.common.mod.v1.model.loader.ModLoaderType;
+import com.blib.mod.BLib;
 
 /**
  * Per-shader hooks that run after every {@code ShaderInstance.apply()}:
@@ -89,19 +91,19 @@ public final class BLibGbufferUniforms {
     /**
      * Forces the auxiliary colour mask OFF and syncs the cache to match, at the top of every level pass.
      * <p>
-     * WHY THIS EXISTS: {@code toggleAuxColorMask} skips the GL call whenever the requested state already
-     * matches {@code lastAuxWritesEnabled}. That cache is BLib's BELIEF about GL state, and nothing stops a third
-     * party from invalidating it: any mod that calls {@code glColorMask}/{@code glColorMaski}, switches framebuffers,
-     * or runs its own geometry pass leaves the real state and the belief disagreeing, and BLib then skips the very
-     * call that would have corrected it. The disagreement persists until something happens to flip the cache.
+     * WHY THIS EXISTS: {@code toggleAuxColorMask} skips the GL call whenever the requested state already matches
+     * {@code lastAuxWritesEnabled}. That cache is BLib's BELIEF about GL state, and nothing stops a third party from
+     * invalidating it: any mod that calls {@code glColorMask}/{@code glColorMaski}, switches framebuffers, or runs its
+     * own geometry pass leaves the real state and the belief disagreeing, and BLib then skips the very call that would
+     * have corrected it. The disagreement persists until something happens to flip the cache.
      * <p>
-     * ⚠⚠ AND THE DEFAULT USED TO BE THE DANGEROUS WAY ROUND. {@code resetColorMaskCache} assumes writes are ENABLED,
-     * so any foreign pass drawing before the first patched shader of the frame — a shadow pass, an instanced renderer,
+     * ⚠⚠ AND THE DEFAULT USED TO BE THE DANGEROUS WAY ROUND. {@code resetColorMaskCache} assumes writes are ENABLED, so
+     * any foreign pass drawing before the first patched shader of the frame — a shadow pass, an instanced renderer,
      * another mod's post pipeline — writes UNDEFINED values straight into attachments 1-6. That is the same failure as
      * Sodium's unpatched chunk shaders: classification that was never written, read back as structured garbage.
      * <p>
-     * ⭐ Making OFF the per-frame default means a foreign pass can no longer corrupt the classification of anything;
-     * the worst it can do is leave its own pixels unclassified, which the depth reclassify already handles. The first
+     * ⭐ Making OFF the per-frame default means a foreign pass can no longer corrupt the classification of anything; the
+     * worst it can do is leave its own pixels unclassified, which the depth reclassify already handles. The first
      * patched draw of the frame turns writes back on. Six GL calls per frame.
      */
     public static void forceAuxWritesOffForFrame() {
@@ -125,14 +127,13 @@ public final class BLibGbufferUniforms {
      * ⚠⚠⚠ TURNS BLENDING OFF FOR THE AUXILIARY ATTACHMENTS ONLY. THIS FIXES THE HORIZON BAND, AND ITS ABSENCE IS WHY
      * THAT BUG SURVIVED EVERY OTHER FIX.
      * <p>
-     * Blend state in OpenGL is PER DRAW BUFFER, but vanilla only ever sets it globally — so when it enables blending
-     * to draw the sun, the moon or the sunrise gradient, that blend applies to attachments 1-6 as well, and the
+     * Blend state in OpenGL is PER DRAW BUFFER, but vanilla only ever sets it globally — so when it enables blending to
+     * draw the sun, the moon or the sunrise gradient, that blend applies to attachments 1-6 as well, and the
      * classification byte gets MIXED with whatever was already there instead of replacing it.
      * <p>
-     * ⭐⭐ CAUGHT BY DIRECT ATTRIBUTION, not deduction. The writer trace named {@code position_tex} and showed the
-     * damage as PARTIAL values drifting a few units off a real category — terrain 128 sliding to 120, celestial 16 to
-     * 15, and pairs oscillating 89/83 and 88/82 between consecutive draws. Garbage does not look like that; a blend
-     * does.
+     * ⭐⭐ CAUGHT BY DIRECT ATTRIBUTION, not deduction. The writer trace named {@code position_tex} and showed the damage
+     * as PARTIAL values drifting a few units off a real category — terrain 128 sliding to 120, celestial 16 to 15, and
+     * pairs oscillating 89/83 and 88/82 between consecutive draws. Garbage does not look like that; a blend does.
      * <p>
      * ⚠ I DISMISSED THIS EARLIER IN THE DAY on the grounds that the patcher writes the mask with alpha 1.0, so under
      * {@code SRC_ALPHA/ONE_MINUS_SRC_ALPHA} the source would win outright. That is true — and irrelevant, because
@@ -159,13 +160,13 @@ public final class BLibGbufferUniforms {
      * Shaders whose category only makes sense during the sky stage, because vanilla reuses the same name for a
      * full-screen overlay drawn long after terrain and entities.
      * <p>
-     * ⚠⚠ {@code position_tex} is tagged CELESTIAL for the sun and moon — and is ALSO what draws the underwater
-     * overlay. Submerged, it stamped celestial (mask 16) across the entire view, so a xenomorph two metres away read
-     * as sky in BOTH vision modes while block heat, which comes from depth rather than the mask, carried on landing on
-     * it. Measured directly: the same creature reads 255 above the surface and 16 below it.
+     * ⚠⚠ {@code position_tex} is tagged CELESTIAL for the sun and moon — and is ALSO what draws the underwater overlay.
+     * Submerged, it stamped celestial (mask 16) across the entire view, so a xenomorph two metres away read as sky in
+     * BOTH vision modes while block heat, which comes from depth rather than the mask, carried on landing on it.
+     * Measured directly: the same creature reads 255 above the surface and 16 below it.
      * <p>
-     * ⚠ {@code position_tex_color} is here for the same reason — the sunrise gradient and the void plane during the
-     * sky stage, an overlay afterwards.
+     * ⚠ {@code position_tex_color} is here for the same reason — the sunrise gradient and the void plane during the sky
+     * stage, an overlay afterwards.
      * <p>
      * Outside the sky stage these are treated as unpatched overlays: auxiliary writes suppressed, whatever is behind
      * them keeps its classification. Removing them from the patcher's category lists instead does NOT work — that was
@@ -187,9 +188,9 @@ public final class BLibGbufferUniforms {
      * ⚠ EXPENSIVE ON PURPOSE — a {@code glReadPixels} stall per shader bind, so framerate will drop hard. Run it for a
      * few seconds pointed at the artifact, then take the flag out. It is a trap, not a monitor.
      * <p>
-     * READING THE OUTPUT: the interesting line is the FIRST transition to a value that is not
-     * 255/223/128/64/16/0, and the {@code after=} name on that line is the culprit. Repeats of the same transition are
-     * suppressed so one look at the horizon produces a handful of lines rather than thousands.
+     * READING THE OUTPUT: the interesting line is the FIRST transition to a value that is not 255/223/128/64/16/0, and
+     * the {@code after=} name on that line is the culprit. Repeats of the same transition are suppressed so one look at
+     * the horizon produces a handful of lines rather than thousands.
      */
     private static void traceMaskWriter(String shaderName) {
         if (!Boolean.getBoolean("blib.postEffect.maskWriterTrace")) {
@@ -280,8 +281,8 @@ public final class BLibGbufferUniforms {
      * dropping {@code rendertype_translucent} from the TERRAIN list, WAS TRIED AND REVERTED: it makes the pass
      * unpatched, so glass and ice over open sky would keep the SKY classification behind them and read warm.
      * <p>
-     * ⭐⭐⭐ INSTEAD, BLEND THE MASK WITH {@code GL_MAX}. The category constants are ordered by how foreground a thing
-     * is — entity 255 &gt; held item 223 &gt; terrain 128 &gt; particle 64 &gt; celestial 16 &gt; sky 0 — so taking the
+     * ⭐⭐⭐ INSTEAD, BLEND THE MASK WITH {@code GL_MAX}. The category constants are ordered by how foreground a thing is
+     * — entity 255 &gt; held item 223 &gt; terrain 128 &gt; particle 64 &gt; celestial 16 &gt; sky 0 — so taking the
      * maximum means THE MOST FOREGROUND CLASSIFICATION WINS, which is exactly the rule we want:
      * <ul>
      * <li>water over a fish → max(255, 128) = 255, the fish survives and stays warm.</li>
@@ -289,12 +290,45 @@ public final class BLibGbufferUniforms {
      * <li>ice over stone → max(128, 128) = 128, unchanged.</li>
      * </ul>
      * <p>
-     * ⚠ ATTACHMENT 1 ONLY. Attachments 2-6 stay masked off for this pass: a MAX over drawData or specular would mix
-     * the water's own surface detail into the fish's heat inputs, so the classification survives but the numbers
-     * feeding it must not be touched.
+     * ⚠ ATTACHMENT 1 ONLY. Attachments 2-6 stay masked off for this pass: a MAX over drawData or specular would mix the
+     * water's own surface detail into the fish's heat inputs, so the classification survives but the numbers feeding it
+     * must not be touched.
      * <p>
      * ⚠ Returns true when it has taken over the colour mask, so the caller must not then apply its own.
      */
+    /**
+     * ⚠⚠⚠ Aug 27 — {@code GL40.glBlendEquationi(1, GL_MAX)} below IS the Fabric 0.1.5 world-join killer (exit
+     * {@code 0xC0000409}, no crash report, no hs_err — the process dies inside the driver). Found by bytecode-bisecting
+     * the shipped blib-fabric jar live on the affected machine: fourteen single-change jars narrowed it from
+     * "registering any post effect" to this one instruction. Removing ONLY this call (TEST13) loads and plays; removing
+     * everything else and keeping it (TEST14) still crashes.
+     * <p>
+     * ⚠ THE MECHANISM IS NOT UNDERSTOOD. The same instruction on the same GPU (GL 4.6) runs fine under NeoForge, and
+     * the driver gives no diagnostic. Every theory tried — missing function pointer, stale framebuffer id,
+     * patched-shader interaction, per-frame pipeline state — was ELIMINATED by measurement (unpatched shaders still
+     * crashed; the pipeline, depth snapshot, uniforms and mask loop were each removed individually and the crash
+     * survived all of them). Do not "clean this up" into a capability check: the capability IS reported present on the
+     * crashing machines.
+     * <p>
+     * So the MAX equation is DISABLED BY DEFAULT ON FABRIC and kept on NeoForge, with a system property to override
+     * either way for testing: {@code -Dblib.translucentMaxBlend=true|false}. The Fabric fallback is exactly the
+     * gameplay-verified TEST13 state: buffer 1 keeps ordinary alpha blending, so the entity classification survives
+     * everywhere EXCEPT behind a translucent surface — on Fabric, a xeno under water reads on thermal only once the
+     * camera is submerged too. That trade is deliberate: a degraded vision beats a dead process, and the flag lets us
+     * re-test the full path the moment the driver interaction is understood.
+     */
+    private static final boolean TRANSLUCENT_MAX_BLEND_ENABLED = resolveTranslucentMaxBlendEnabled();
+
+    private static boolean resolveTranslucentMaxBlendEnabled() {
+        var override = System.getProperty("blib.translucentMaxBlend");
+
+        if (override != null) {
+            return Boolean.parseBoolean(override);
+        }
+
+        return BLibAPI.getModLoaderType() != ModLoaderType.FABRIC;
+    }
+
     private static boolean applyTranslucentMaxBlend(String shaderName) {
         if (!isTranslucentTerrainShader(shaderName)) {
             return false;
@@ -307,10 +341,14 @@ public final class BLibGbufferUniforms {
         }
 
         GL30.glEnablei(GL30.GL_BLEND, 1);
+
         // ⚠ glBlendEquationi is GL 4.0, NOT GL30 — the indexed ENABLE and COLOR MASK arrived in 3.0 but the indexed
-        // blend-equation setter did not, so the call and its constant live in different classes. Minecraft requires a
-        // 3.2 core context and every desktop driver that runs it exposes 4.x, so this is safe here.
-        GL40.glBlendEquationi(1, GL30.GL_MAX);
+        // blend-equation setter did not, so the call and its constant live in different classes. The old comment here
+        // claimed "every desktop driver that runs Minecraft exposes 4.x, so this is safe" — Fabric falsified that in
+        // the field. See TRANSLUCENT_MAX_BLEND_ENABLED above before touching this.
+        if (TRANSLUCENT_MAX_BLEND_ENABLED) {
+            GL40.glBlendEquationi(1, GL30.GL_MAX);
+        }
 
         // The cache no longer describes reality — force the next ordinary shader to re-issue its mask outright.
         lastAuxWritesEnabled = !lastAuxWritesEnabled;
@@ -340,7 +378,8 @@ public final class BLibGbufferUniforms {
 
         var patched = BLibEntityShaderPatcher.categoryFor(shaderName) != null;
 
-        // ⚠⚠ Some vanilla shaders wear one name across several jobs at different points in the frame: the void plane and the sunrise gradient during
+        // ⚠⚠ Some vanilla shaders wear one name across several jobs at different points in the frame: the void plane
+        // and the sunrise gradient during
         // the sky stage, and the FULL-SCREEN UNDERWATER OVERLAY drawn long after terrain and entities. As passthrough
         // it zeroes the auxiliary attachments — correct for the first two, catastrophic for the third, where it wipes
         // the classification of every fish and dolphin behind it.
@@ -414,8 +453,8 @@ public final class BLibGbufferUniforms {
      * Vanilla draws chests, beds, signs, banners, shulker boxes, item frames and enchanting tables through ENTITY
      * render types — {@code Sheets.chestSheet()} and {@code Sheets.bedSheet()} resolve to
      * {@code RenderType.entityCutout}/{@code entitySolid} — so furniture was stamped ENTITY and lit up on
-     * electromagnetic vision next to living things. ⚠ Thermal misclassified them too; they merely landed in the
-     * ambient tier and read cold, so nobody noticed.
+     * electromagnetic vision next to living things. ⚠ Thermal misclassified them too; they merely landed in the ambient
+     * tier and read cold, so nobody noticed.
      * <p>
      * ⭐ Third instance of the same shape today: {@link BLibSkyStage} split the sun from the underwater overlay,
      * {@link BLibWeatherStage} split rain from smoke. **A shader NAME cannot say what is being drawn — only WHEN it is
@@ -427,8 +466,8 @@ public final class BLibGbufferUniforms {
      * <p>
      * ⏭ THE OPT-IN IS DELIBERATELY NOT BUILT YET. Making containers visible again is a consumer-side decision
      * (avp_predator would tag which block entities count), and that needs a BLib hook designed with him rather than
-     * guessed at — the natural shape is a settable exemption on {@link BLibBlockEntityStage} that the renderer
-     * consults per block entity.
+     * guessed at — the natural shape is a settable exemption on {@link BLibBlockEntityStage} that the renderer consults
+     * per block entity.
      */
     private static boolean isBackgroundEntity() {
         return BLibBackgroundEntityRenderState.isActiveA() || BLibBlockEntityStage.isDrawing();

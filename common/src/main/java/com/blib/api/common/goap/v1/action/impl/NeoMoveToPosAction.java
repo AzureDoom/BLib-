@@ -8,13 +8,17 @@ import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.concurrent.CompletableFuture;
+
 import com.blib.api.common.entity.v1.EntityUtil;
 import com.blib.api.common.pathfinding.v1.breaking.PathBlockBreakExecutor;
 import com.blib.api.common.pathfinding.v1.debug.PathDebugUtil;
 import com.blib.api.common.pathfinding.v1.feature.PathfindingFeature;
 import com.blib.api.common.pathfinding.v1.movement.PathMovementController;
+import com.blib.api.common.pathfinding.v1.navigator.PathNavigationFailure;
 import com.blib.api.common.pathfinding.v1.navigator.PathNavigatorApi;
 import com.blib.api.common.pathfinding.v1.navigator.PathNavigatorUser;
+import com.blib.api.common.pathfinding.v1.path.BLibPath;
 
 /**
  * GOAP action utility for pathfinding using BLib's {@link PathNavigatorApi}. Requires the entity to implement
@@ -25,6 +29,12 @@ import com.blib.api.common.pathfinding.v1.navigator.PathNavigatorUser;
  * </p>
  */
 public final class NeoMoveToPosAction {
+
+    /** The in-flight path search for this actor, so the server thread never has to wait on it. */
+    // ⚠ Result is FULLY QUALIFIED here on purpose: this class declares its own nested `Result` enum, which
+    // shadows any import of the same simple name inside the class body.
+    private static final StateKey<CompletableFuture<com.just.core.functional.result.Result<BLibPath, PathNavigationFailure>>> PENDING_PATH =
+        StateKey.sensed("neo_pending_path");
 
     private static final StateKey<BlockPos> LAST_OPENED_DOOR_POS = StateKey.sensed("neo_last_opened_door_pos");
 
@@ -100,16 +110,41 @@ public final class NeoMoveToPosAction {
             featureControl.setDebugCaptureEnabled(PathDebugUtil.hasDebugWatchers(actor));
 
             if (!navigatorState.isNavigating()) {
-                var pathResult = navigator.navigateTo(
-                    actor.getX(),
-                    actor.getY(),
-                    actor.getZ(),
-                    targetPos.x,
-                    targetPos.y,
-                    targetPos.z
-                ).withFeatures(requestedFeatures).start().join();
+                // 🚨🚨 NEVER BLOCK THE SERVER THREAD ON AN ASYNC PATH. This used to call .join() on the pathfinding
+                // future, so the server thread SAT AND WAITED for a search running on another thread - a Spark
+                // profile of a live server showed CompletableFuture.join() alone at 2.55% of the entire server
+                // thread, while the request that produced it cost only 0.84%. Async pathfinding that the caller
+                // blocks on is just synchronous pathfinding with extra steps.
+                //
+                // ⭐ A pending future is remembered and checked on later ticks instead. When the search runs
+                // SYNCHRONOUSLY - block-breaking paths, or async disabled - the future is already complete and this
+                // behaves exactly as before, so the common case is untouched.
+                var pending = blackboard.getOrDefault(PENDING_PATH, null);
 
-                if (pathResult.isErr()) {
+                if (pending == null) {
+                    pending = navigator.navigateTo(
+                        actor.getX(),
+                        actor.getY(),
+                        actor.getZ(),
+                        targetPos.x,
+                        targetPos.y,
+                        targetPos.z
+                    ).withFeatures(requestedFeatures).start();
+
+                    blackboard.set(PENDING_PATH, pending);
+                }
+
+                // ⚠ NOT READY YET IS NOT A FAILURE. Report MOVING and look again next tick; the navigator applies
+                // the path itself the moment the search finishes.
+                if (!pending.isDone()) {
+                    return Result.MOVING;
+                }
+
+                var pathResult = pending.getNow(null);
+
+                blackboard.set(PENDING_PATH, null);
+
+                if (pathResult == null || pathResult.isErr()) {
                     resetBlockBreakExecutor(actor, blackboard);
                     return Result.NO_PATH;
                 }

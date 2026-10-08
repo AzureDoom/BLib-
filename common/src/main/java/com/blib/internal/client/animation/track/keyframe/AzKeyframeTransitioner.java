@@ -9,8 +9,8 @@ import com.blib.api.common.spatial.v1.Axis;
 import com.blib.internal.client.animation.track.AzBoneAnimationQueueCache;
 import com.blib.internal.client.animation.track.AzBoneSnapshotCache;
 import com.blib.internal.client.model.AzBoneSnapshot;
-import com.blib.internal.common.molang.MolangParser;
 import com.blib.internal.common.molang.MolangQueries;
+import com.blib.internal.common.molang.MolangVariableRef;
 import com.blib.internal.common.molang.math.IValue;
 
 public class AzKeyframeTransitioner<T> extends AzAbstractKeyframeExecutor {
@@ -31,12 +31,17 @@ public class AzKeyframeTransitioner<T> extends AzAbstractKeyframeExecutor {
         this.boneSnapshotCache = boneSnapshotCache;
     }
 
+    private static final MolangVariableRef ANIM_TIME_REF = new MolangVariableRef(MolangQueries.ANIM_TIME);
+
+    private static final java.util.function.DoubleSupplier ZERO_ANIM_TIME = () -> 0;
+
     public void transition(Map<String, AzBone> bones, boolean crashWhenCantFindBone, double adjustedTick) {
         var currentAnimation = animationTrack.currentAnimation();
         var transitionLength = animationTrack.animationProperties().transitionLength();
         adjustedTick = Math.min(adjustedTick, transitionLength); // Cap tick length
 
-        MolangParser.INSTANCE.setValue(MolangQueries.ANIM_TIME, () -> 0);
+        // AzureLib 3.1.13 port: a reference resolved once; BLib's transition keeps anim_time at 0 as before.
+        ANIM_TIME_REF.set(ZERO_ANIM_TIME);
 
         for (var boneAnimation : currentAnimation.animation().boneAnimations()) {
             var bone = bones.get(boneAnimation.boneName());

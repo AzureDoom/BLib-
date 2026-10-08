@@ -1,3 +1,8 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.common.molang.expressions;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
@@ -8,12 +13,22 @@ import java.util.Map;
 import java.util.StringJoiner;
 
 import com.blib.internal.common.molang.LazyVariable;
+import com.blib.internal.common.molang.math.IValue;
 
+/**
+ * An extension of the {@link MolangValue} class, allowing for compound expressions.
+ */
 public class MolangCompoundValue extends MolangValue {
 
     public final List<MolangValue> values = new ObjectArrayList<>();
 
     public final Map<String, LazyVariable> locals = new Object2ObjectOpenHashMap<>();
+
+    /**
+     * The statement's expression tree when this compound holds exactly one plain statement (no assignment), so
+     * {@link #get()} can evaluate it directly instead of iterating {@link #values}. Set by {@link #compact()}.
+     */
+    private IValue direct;
 
     public MolangCompoundValue(MolangValue baseValue) {
         super(baseValue);
@@ -21,12 +36,31 @@ public class MolangCompoundValue extends MolangValue {
         this.values.add(baseValue);
     }
 
+    /**
+     * Enables the single-statement fast path. Call once after all statements have been added; the parser does this. If
+     * statements are added afterward, call it again.
+     */
+    public void compact() {
+        this.direct = this.values.size() == 1 && this.values.get(0).getClass() == MolangValue.class
+            ? this.values.get(0).getValueHolder()
+            : null;
+    }
+
     @Override
     public double get() {
+        IValue direct = this.direct;
+
+        if (direct != null)
+            return direct.get();
+
         double value = 0;
 
-        for (var molangValue : this.values) {
+        for (MolangValue molangValue : this.values) {
             value = molangValue.get();
+
+            // A return statement ends the expression; later statements must not run.
+            if (molangValue.isReturnValue())
+                return value;
         }
 
         return value;

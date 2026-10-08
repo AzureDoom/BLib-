@@ -132,6 +132,53 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
         stateMachine.update();
         // Update bone animation queue cache.
         boneAnimationQueueCache.update(animationProperties.easingType());
+
+        if (DEBUG_TRACE_FRAMES > 0) {
+            DEBUG_TRACE_FRAMES--;
+            traceFrame();
+        }
+    }
+
+    /** {@code -Dblib.animsync.debug=true}: frames left to trace after a play-once handoff (set by AzPlayBehaviors). */
+    public static int DEBUG_TRACE_FRAMES;
+
+    private static final org.slf4j.Logger TRACE_LOGGER = org.slf4j.LoggerFactory.getLogger("blib/animsync");
+
+    private void traceFrame() {
+        var state = stateMachine.isStopped()
+            ? "STOP"
+            : stateMachine.isPlaying() ? "PLAY" : stateMachine.isTransitioning() ? "TRANSITION" : "PAUSE";
+        var current = currentAnimation == null ? "none" : currentAnimation.animation().name();
+        var bones = new StringBuilder();
+
+        for (var entry : animator.context().boneCache().getBakedModel().getBonesByName().entrySet()) {
+            var lower = entry.getKey().toLowerCase(java.util.Locale.ROOT);
+
+            if (
+                lower.contains("door") || lower.contains("lid") || lower.contains("hatch") || lower.contains("cover") || lower.equals(
+                    "root"
+                ) || lower.equals("leftarm")
+            ) {
+                var bone = entry.getValue();
+
+                bones.append(' ')
+                    .append(entry.getKey())
+                    .append("=rot(")
+                    .append(String.format(java.util.Locale.ROOT, "%.2f,%.2f,%.2f", bone.getRotX(), bone.getRotY(), bone.getRotZ()))
+                    .append(")pos(")
+                    .append(String.format(java.util.Locale.ROOT, "%.2f,%.2f,%.2f", bone.getPosX(), bone.getPosY(), bone.getPosZ()))
+                    .append(')');
+            }
+        }
+
+        TRACE_LOGGER.info(
+            "[animsync] frame state={} current={} tick={} queue={}{}",
+            state,
+            current,
+            trackTimer.getAdjustedTick(),
+            animationQueue.size(),
+            bones
+        );
     }
 
     public void run(@NotNull AzAnimationSequence sequence, @NotNull AzDispatchPolicy policy) {

@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.blib.internal.common.diagnostics.BLibDiagnosticSwitches;
 import com.blib.internal.common.event.BLibGlobalEvents;
 
 @Mixin(ChunkMap.class)
@@ -52,6 +53,11 @@ public abstract class MixinChunkMap_ChunkLoadEvent {
      */
     @Inject(at = @At("TAIL"), method = "onFullChunkStatusChange")
     private void blib$onChunkLoad(ChunkPos pos, FullChunkStatus fullChunkStatus, CallbackInfo ci) {
+        // Sep 28 - diagnostic kill switch (-Dblib.chunkEvents=false); see BLibDiagnosticSwitches. Default: on.
+        if (!BLibDiagnosticSwitches.CHUNK_EVENTS_ENABLED) {
+            return;
+        }
+
         if (!fullChunkStatus.isOrAfter(FullChunkStatus.FULL)) {
             // Dropping below FULL is the unload edge: forget the chunk so the event fires again on its NEXT
             // load, and so this set stays bounded by the loaded-chunk count instead of growing for the whole

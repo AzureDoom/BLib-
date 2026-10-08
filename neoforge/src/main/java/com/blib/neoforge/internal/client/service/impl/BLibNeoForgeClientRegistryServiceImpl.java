@@ -7,6 +7,7 @@ import net.minecraft.client.color.item.ItemColor;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
 import net.minecraft.client.renderer.RenderType;
@@ -17,22 +18,29 @@ import net.minecraft.core.particles.ParticleType;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.neoforge.client.ClientHooks;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
+import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import net.neoforged.neoforge.common.NeoForge;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -242,5 +250,29 @@ public class BLibNeoForgeClientRegistryServiceImpl implements BLibClientRegistry
 
     private BLibNeoForgeClientModContainer getModContainer(BLibClientMod mod) {
         return BLibNeoForgeClientModContainerLookup.INSTANCE.get(mod);
+    }
+
+    /** NeoForge's own armor-model hook: the same call vanilla's {@code HumanoidArmorLayer} makes on this loader. */
+    @Override
+    public @Nullable HumanoidModel<?> getForeignArmorModel(
+        LivingEntity livingEntity,
+        ItemStack itemStack,
+        EquipmentSlot equipmentSlot,
+        HumanoidModel<?> original
+    ) {
+        var model = IClientItemExtensions.of(itemStack).getHumanoidArmorModel(livingEntity, itemStack, equipmentSlot, original);
+
+        return model == original ? null : model;
+    }
+
+    @Override
+    public ResourceLocation getForeignArmorTexture(
+        LivingEntity livingEntity,
+        ItemStack itemStack,
+        EquipmentSlot equipmentSlot,
+        ArmorMaterial.Layer layer,
+        boolean innerModel
+    ) {
+        return ClientHooks.getArmorTexture(livingEntity, itemStack, layer, innerModel, equipmentSlot);
     }
 }

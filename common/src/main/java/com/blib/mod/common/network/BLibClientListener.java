@@ -18,6 +18,7 @@ import com.blib.internal.client.territory.ClientTerritoryCache;
 import com.blib.mod.client.render.debug.PathfindingDebugState;
 import com.blib.mod.client.render.goap.GOAPDebugState;
 import com.blib.mod.common.network.packet.S2CChunkClaimsSyncPayload;
+import com.blib.mod.common.network.packet.S2CClaimHudEventPayload;
 import com.blib.mod.common.network.packet.S2CEntityDataSyncPayload;
 import com.blib.mod.common.network.packet.S2CFactionMetadataSyncPayload;
 import com.blib.mod.common.network.packet.S2CGOAPDebugPayload;
@@ -27,6 +28,40 @@ import com.blib.mod.common.network.packet.S2CPathfindingSearchDebugPayload;
 
 @ApiStatus.Internal
 public final class BLibClientListener {
+
+    /** ⚠ Aug 28 — claim HUD display, all four notices + the settings sync. See ClaimAwarenessTracker. */
+    public static void handleClaimHudEvent(S2CClaimHudEventPayload payload, Player player) {
+        var minecraft = net.minecraft.client.Minecraft.getInstance();
+
+        switch (payload.kind()) {
+            case S2CClaimHudEventPayload.KIND_SETTINGS -> {
+                com.blib.internal.client.territory.BLibClaimHud.setClaimMapOverlayEnabled((payload.color() & 1) != 0);
+                com.blib.internal.client.territory.BLibClaimHud.setClaimHudMessagesEnabled((payload.color() & 2) != 0);
+            }
+            case S2CClaimHudEventPayload.KIND_ENTER, S2CClaimHudEventPayload.KIND_LEAVE -> {
+                var verb = payload.kind() == S2CClaimHudEventPayload.KIND_ENTER ? "Entering " : "Leaving ";
+                var message = net.minecraft.network.chat.Component.literal(verb)
+                    .append(net.minecraft.network.chat.Component.literal(payload.factionName()).withColor(payload.color()))
+                    .append(net.minecraft.network.chat.Component.literal(" territory"));
+                minecraft.gui.setOverlayMessage(message, false);
+            }
+            case S2CClaimHudEventPayload.KIND_NOTICE -> minecraft.gui.setOverlayMessage(
+                net.minecraft.network.chat.Component.literal(payload.factionName() + " is taking notice of your presence")
+                    .withColor(payload.color()),
+                false
+            );
+            case S2CClaimHudEventPayload.KIND_AWARE -> {
+                // His spec: the trespass-detected title FLASHES RED. Short fade-in/out with a brief hold reads as
+                // the flash without needing an animation.
+                minecraft.gui.setTimes(2, 30, 8);
+                minecraft.gui.setTitle(
+                    net.minecraft.network.chat.Component.literal(payload.factionName() + " is aware of your trespassing")
+                        .withColor(payload.color())
+                );
+            }
+            default -> {}
+        }
+    }
 
     public static void handleChunkClaimsSync(S2CChunkClaimsSyncPayload payload, Player player) {
         if (payload.replaceArea()) {

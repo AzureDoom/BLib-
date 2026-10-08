@@ -1,8 +1,11 @@
 package com.blib.api.common.pathfinding.v1.search;
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.LevelReader;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -13,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,6 +42,7 @@ import com.blib.api.common.pathfinding.v1.feature.PathfindingProfile;
 import com.blib.api.common.pathfinding.v1.node.PathNode;
 import com.blib.api.common.pathfinding.v1.path.BLibPath;
 import com.blib.api.common.pathfinding.v1.terrain.TerrainType;
+import com.blib.internal.common.perf.BLibPerfProfiler;
 
 /**
  * A* pathfinding with optional two-level hierarchical search. When the section-corridor feature is enabled and a
@@ -87,6 +92,38 @@ public final class BLibPathFinder {
 
     private PathfindingFeatures features = PathfindingProfile.LEGACY_PERMISSIVE.features();
 
+    // ============================================================================================
+    // ONE SEARCH AT A TIME (Sep 28) - see SearchTicket for the full story.
+    // ============================================================================================
+    // Every search on this pathfinder shares the open set, closed list, corridor seed and the evaluator's chunk
+    // snapshot. quiesce() runs before anything touches that state and makes sure the previous background search has
+    // actually LEFT, not merely been marked unwanted. Cheap when nothing is in flight: one volatile read.
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(BLibPathFinder.class);
+
+    /**
+     * How long a new search waits for a superseded one to stop. ⚠ It should never come close: the old search checks its
+     * stop flag on every step and leaves within microseconds. This only guards against the unthinkable - and if it is
+     * ever hit, the new search simply proceeds, which is exactly what EVERY search did before this existed, so the
+     * worst case is never worse than the old behaviour. The chunk release is skipped in that case (see
+     * searchGeneration).
+     */
+    private static final long ABANDON_WAIT_MILLIS = 250L;
+
+    /** The ticket of the search running on THIS thread, so the search loops can see their own stop flag. */
+    private static final ThreadLocal<SearchTicket> RUNNING_TICKET = new ThreadLocal<>();
+
+    private static volatile boolean warnedSlowAbandon;
+
+    private volatile @Nullable SearchTicket inFlightSearch;
+
+    /**
+     * Bumped every time a new search begins preparing. A background search releases the chunk snapshot on exit ONLY if
+     * this has not moved since it was dispatched - i.e. nothing newer can be using the snapshot. A superseded search
+     * therefore never releases; the new search's own prepare resets the snapshot anyway.
+     */
+    private volatile long searchGeneration;
+
     public BLibPathFinder(TerrainEvaluator evaluator, SearchConfig config) {
         this(evaluator, config, null);
     }
@@ -101,10 +138,45 @@ public final class BLibPathFinder {
     }
 
     public void setExcludedTerrains(@Nullable Set<TerrainType> excludedTerrains) {
+        quiesce();
         this.excludedTerrains = excludedTerrains;
     }
 
+    /**
+     * Positions of the path this entity is already following, packed with {@link BlockPos#asLong}.
+     * <p>
+     * ⚠ Empty for every search that is not a replan, and the emptiness check is the first thing the hot loop tests, so
+     * a first-time search pays one {@code isEmpty()} per edge and nothing else.
+     */
+    private final LongOpenHashSet preferredCorridor = new LongOpenHashSet();
+
+    /**
+     * Tells the next search which route the entity is already committed to, so it prefers to keep that shape.
+     * <p>
+     * ⚠ Only the nodes from the current index onward are seeded. Seeding the whole path would discount the ground
+     * ALREADY WALKED, which is a bias toward going backwards — the opposite of what this is for.
+     */
+    public void setPreferredCorridor(@Nullable BLibPath path) {
+        quiesce();
+        preferredCorridor.clear();
+
+        if (path == null) {
+            return;
+        }
+
+        for (var index = Math.max(0, path.getCurrentNodeIndex()); index < path.getNodeCount(); index++) {
+            var node = path.getNode(index);
+            preferredCorridor.add(BlockPos.asLong(node.getX(), node.getY(), node.getZ()));
+        }
+    }
+
+    public void clearPreferredCorridor() {
+        quiesce();
+        preferredCorridor.clear();
+    }
+
     public void setFeatures(PathfindingFeatures features) {
+        quiesce();
         this.features = features;
     }
 
@@ -128,6 +200,12 @@ public final class BLibPathFinder {
         this.debugCaptureEnabled = debugCaptureEnabled;
     }
 
+    /**
+     * Nodes this path finder has closed over its lifetime, for {@code /blib perf}. Only ever read as a before/after
+     * difference around one search, which {@code quiesce} keeps to one at a time per finder.
+     */
+    private long visitedNodesTotal;
+
     public @Nullable PathSearchSnapshot getLastSearchSnapshot() {
         return lastSearchSnapshot;
     }
@@ -140,18 +218,24 @@ public final class BLibPathFinder {
     }
 
     public @Nullable BLibPath findPath(LevelReader level, BlockPos startPos, BlockPos targetPos) {
+        quiesce();
+        readSearchRules(level);
         debugEnabled = debugCaptureEnabled;
 
+        var phaseStart = BLibPerfProfiler.pathPhasesWanted() ? System.nanoTime() : 0L;
         evaluator.prepare(level);
         applyFeatures();
         applyExcludedTerrains();
+        recordPhase(BLibPerfProfiler.PATH_PHASE_PREPARE, phaseStart);
 
         try {
             Set<Long> corridor = null;
             var mode = PathSearchMode.DIRECT;
 
             if (shouldUseCorridor(startPos, targetPos)) {
+                var corridorStart = BLibPerfProfiler.pathPhasesWanted() ? System.nanoTime() : 0L;
                 var result = corridorFinder.findCorridor(level, startPos, targetPos);
+                recordPhase(BLibPerfProfiler.PATH_PHASE_CORRIDOR, corridorStart);
 
                 if (result != null) {
                     corridor = result.corridor();
@@ -163,7 +247,17 @@ public final class BLibPathFinder {
 
             return searchBlocks(startPos, targetPos, corridor, mode);
         } finally {
+            var cleanupStart = BLibPerfProfiler.pathPhasesWanted() ? System.nanoTime() : 0L;
             evaluator.cleanup();
+            releaseEvaluatorChunks();
+            recordPhase(BLibPerfProfiler.PATH_PHASE_CLEANUP, cleanupStart);
+        }
+    }
+
+    /** /blib perf: one of the extra (non-enum) path phases; a no-op when start is 0. */
+    private static void recordPhase(int phase, long start) {
+        if (start != 0L) {
+            BLibPerfProfiler.recordPathPhase(phase, System.nanoTime() - start);
         }
     }
 
@@ -174,6 +268,9 @@ public final class BLibPathFinder {
      * @return a future that completes with the path (or null if no path found)
      */
     public CompletableFuture<@Nullable BLibPath> findPathAsync(LevelReader level, BlockPos startPos, BlockPos targetPos) {
+        quiesce();
+        readSearchRules(level);
+
         if (
             !features.asyncPathfinding()
                 || features.blockBreaking()
@@ -260,11 +357,38 @@ public final class BLibPathFinder {
         var capturedCorridor = corridor;
         var capturedMode = mode;
 
+        var ticket = new SearchTicket();
+        var dispatchedGeneration = searchGeneration;
+        inFlightSearch = ticket;
+
         return CompletableFuture.supplyAsync(() -> {
+            // Abandoned while still queued: never touch the shared state. The CancellationException is what the
+            // navigator already treats as "superseded", exactly as for a future cancelled before it ran.
+            if (!ticket.tryStart()) {
+                throw new CancellationException("Path search superseded before it started");
+            }
+
+            RUNNING_TICKET.set(ticket);
+
             try {
-                return searchBlocks(startPos, targetPos, capturedCorridor, capturedMode);
+                var path = searchBlocks(startPos, targetPos, capturedCorridor, capturedMode);
+
+                if (ticket.shouldStop()) {
+                    throw new CancellationException("Path search superseded");
+                }
+
+                return path;
             } finally {
+                RUNNING_TICKET.remove();
                 unifiedEvaluator.cleanup();
+
+                // ⚠ ORDER MATTERS: release BEFORE finish(). A new search waits on finish(), so once it proceeds the
+                // release is already complete and can never clear the snapshot it is filling.
+                if (dispatchedGeneration == searchGeneration) {
+                    unifiedEvaluator.releaseChunks();
+                }
+
+                ticket.finish();
             }
         }, PATHFINDING_EXECUTOR);
     }
@@ -279,6 +403,7 @@ public final class BLibPathFinder {
             return null;
         }
 
+        quiesce();
         evaluator.prepare(level);
         applyFeatures();
         applyExcludedTerrains();
@@ -287,6 +412,7 @@ public final class BLibPathFinder {
             return corridorFinder.findCorridor(level, startPos, targetPos);
         } finally {
             evaluator.cleanup();
+            releaseEvaluatorChunks();
         }
     }
 
@@ -295,6 +421,8 @@ public final class BLibPathFinder {
      * is unavailable or when nearby targets need exact block-level digging/clearance decisions.
      */
     public @Nullable BLibPath findPathDirect(LevelReader level, BlockPos startPos, BlockPos targetPos) {
+        quiesce();
+        readSearchRules(level);
         debugEnabled = debugCaptureEnabled;
 
         evaluator.prepare(level);
@@ -305,6 +433,7 @@ public final class BLibPathFinder {
             return searchBlocks(startPos, targetPos, null, PathSearchMode.DIRECT);
         } finally {
             evaluator.cleanup();
+            releaseEvaluatorChunks();
         }
     }
 
@@ -318,6 +447,8 @@ public final class BLibPathFinder {
         BlockPos targetPos,
         @Nullable Set<Long> corridor
     ) {
+        quiesce();
+        readSearchRules(level);
         debugEnabled = debugCaptureEnabled;
 
         evaluator.prepare(level);
@@ -335,6 +466,7 @@ public final class BLibPathFinder {
             );
         } finally {
             evaluator.cleanup();
+            releaseEvaluatorChunks();
         }
     }
 
@@ -356,7 +488,143 @@ public final class BLibPathFinder {
             && startPos.distManhattan(targetPos) > tuning.corridorDistanceThreshold();
     }
 
+    /**
+     * Makes sure no earlier background search is still running on this pathfinder before its shared state is touched.
+     * Called at the top of every search entry point and every setter a running search reads. Main thread only.
+     */
+    private void quiesce() {
+        searchGeneration++;
+
+        var previous = inFlightSearch;
+
+        if (previous == null) {
+            return;
+        }
+
+        inFlightSearch = null;
+
+        if (!previous.abandonAndAwait(ABANDON_WAIT_MILLIS) && !warnedSlowAbandon) {
+            warnedSlowAbandon = true;
+            LOGGER.warn(
+                "[BLib] A superseded path search was still running after {} ms; continuing without waiting (the pre-Sep-28 behaviour). Logged once.",
+                ABANDON_WAIT_MILLIS
+            );
+        }
+    }
+
+    /** Sync searches run on the calling thread, and quiesce() already guaranteed nothing else is reading. */
+    /*
+     * ⭐ Oct 6 - FAILED-SEARCH CAP. /blib perf showed one warrior at 3 ms a tick: it kept re-searching a target it could
+     * not reach, and a failed search always runs to the full node limit - the most expensive search there is. Now a
+     * search to (within two blocks of) the goal this pathfinder just FAILED to reach gets half the node budget, then a
+     * quarter, then an eighth (never under MIN_CAPPED_NODES), with one full-budget search every FULL_RETRY_EVERY tries
+     * in case a long way round has opened. Reaching the goal, or asking for a different one, resets it. A capped search
+     * still returns its best partial path, so the mob keeps closing in. Off: /gamerule blibPathFailedSearchCap false.
+     */
+    private static final int MIN_CAPPED_NODES = 128;
+
+    private static final int MAX_FAILED_HALVINGS = 3;
+
+    private static final int FULL_RETRY_EVERY = 6;
+
+    private int activeNodeLimit = Integer.MAX_VALUE;
+
+    private boolean failedSearchCapEnabled = true;
+
+    private long failedGoal = Long.MIN_VALUE;
+
+    private int failedRepeats;
+
+    /** Reads this pathfinder's game rules from the level a search is about to run in (main thread). */
+    private void readSearchRules(LevelReader level) {
+        if (level instanceof net.minecraft.world.level.Level live && !live.isClientSide()) {
+            failedSearchCapEnabled = live.getGameRules()
+                .getBoolean(
+                    com.blib.mod.common.registry.init.BLibGameRules.PATH_FAILED_SEARCH_CAP
+                );
+        }
+    }
+
+    private int nodeLimitFor(BlockPos targetPos, SearchConfig searchConfig) {
+        var full = searchConfig.maxSearchNodes();
+
+        if (!failedSearchCapEnabled || failedRepeats <= 0 || !nearFailedGoal(targetPos)) {
+            return full;
+        }
+
+        // Every FULL_RETRY_EVERY-th repeat gets the whole budget again: a capped search cannot find a long detour,
+        // and the target may have become reachable the long way round since.
+        if (failedRepeats % FULL_RETRY_EVERY == 0) {
+            return full;
+        }
+
+        var capped = Math.min(full, Math.max(MIN_CAPPED_NODES, full >> Math.min(failedRepeats, MAX_FAILED_HALVINGS)));
+
+        if (capped < full) {
+            BLibPerfProfiler.recordFailedSearchCap();
+        }
+
+        return capped;
+    }
+
+    private boolean nearFailedGoal(BlockPos targetPos) {
+        if (failedGoal == Long.MIN_VALUE) {
+            return false;
+        }
+
+        return Math.abs(BlockPos.getX(failedGoal) - targetPos.getX()) <= 2
+            && Math.abs(BlockPos.getY(failedGoal) - targetPos.getY()) <= 2
+            && Math.abs(BlockPos.getZ(failedGoal) - targetPos.getZ()) <= 2;
+    }
+
+    private void noteSearchOutcome(BlockPos targetPos, @Nullable BLibPath path) {
+        if (path != null && path.isReached()) {
+            failedRepeats = 0;
+            failedGoal = Long.MIN_VALUE;
+            return;
+        }
+
+        if (nearFailedGoal(targetPos)) {
+            failedRepeats = failedRepeats >= 1_000_000 ? 1 : failedRepeats + 1;
+        } else {
+            failedGoal = targetPos.asLong();
+            failedRepeats = 1;
+        }
+    }
+
+    private void releaseEvaluatorChunks() {
+        if (evaluator instanceof UnifiedTerrainEvaluator unified) {
+            unified.releaseChunks();
+        }
+    }
+
     private @Nullable BLibPath searchBlocks(
+        BlockPos startPos,
+        BlockPos targetPos,
+        @Nullable Set<Long> corridor,
+        PathSearchMode mode
+    ) {
+        // Oct 5 - /blib perf. Every block-level search, blocking or background, goes through here.
+        if (!BLibPerfProfiler.isActive()) {
+            var unprofiled = searchBlocksUnprofiled(startPos, targetPos, corridor, mode);
+            noteSearchOutcome(targetPos, unprofiled);
+            return unprofiled;
+        }
+
+        var startNanos = System.nanoTime();
+        var visitedBefore = visitedNodesTotal;
+        var path = searchBlocksUnprofiled(startPos, targetPos, corridor, mode);
+        BLibPerfProfiler.recordBlibPathSearch(
+            System.nanoTime() - startNanos,
+            (int) (visitedNodesTotal - visitedBefore),
+            path == null,
+            path != null && !path.isReached()
+        );
+        noteSearchOutcome(targetPos, path);
+        return path;
+    }
+
+    private @Nullable BLibPath searchBlocksUnprofiled(
         BlockPos startPos,
         BlockPos targetPos,
         @Nullable Set<Long> corridor,
@@ -397,6 +665,7 @@ public final class BLibPathFinder {
         SearchConfig searchConfig,
         PathfindingTuning activeTuning
     ) {
+        activeNodeLimit = nodeLimitFor(targetPos, searchConfig);
         var totalStart = startTiming(recorder);
         var nodeResolutionStart = startTiming(recorder);
         var startNode = evaluator.getStartNode(startPos);
@@ -431,8 +700,14 @@ public final class BLibPathFinder {
 
         var visitedCount = 0;
         PathNode bestNode = startNode;
+        var stopTicket = RUNNING_TICKET.get();
 
-        while (!openSet.isEmpty() && visitedCount < searchConfig.maxSearchNodes()) {
+        while (!openSet.isEmpty() && visitedCount < activeNodeLimit) {
+            // Sep 28 - a superseded background search leaves at once instead of running to its node limit.
+            if (stopTicket != null && stopTicket.shouldStop()) {
+                return null;
+            }
+
             var pollStart = startTiming(recorder);
             var current = openSet.poll();
             recordTiming(recorder, PathSearchTimingPhase.OPEN_SET_POLL, pollStart);
@@ -454,6 +729,7 @@ public final class BLibPathFinder {
             }
 
             visitedCount++;
+            visitedNodesTotal++;
             recordTiming(recorder, PathSearchTimingPhase.CLOSED_NODE_RECORD, closedRecordStart);
 
             var goalTestStart = startTiming(recorder);
@@ -517,6 +793,17 @@ public final class BLibPathFinder {
                 var edgeCostStart = startTiming(recorder);
                 var edgeCost = current.distanceTo(neighbor) * evaluator.getTerrainCost(neighbor.getTerrainType())
                     + neighbor.getPendingCostMalus();
+
+                // Following the route we are already on is cheaper than an equally good alternative. This is
+                // what stops a chasing mob flip-flopping between two near-equal ways round an obstacle every
+                // time its moving target nudges the search. Clamped below 1 in PathfindingTuning, so the edge
+                // is always discounted and never free or negative.
+                if (
+                    !preferredCorridor.isEmpty()
+                        && preferredCorridor.contains(BlockPos.asLong(neighbor.getX(), neighbor.getY(), neighbor.getZ()))
+                ) {
+                    edgeCost *= 1.0f - activeTuning.replanCorridorBias();
+                }
                 var tentativeG = current.getGCost() + edgeCost;
                 recordTiming(recorder, PathSearchTimingPhase.EDGE_COSTING, edgeCostStart);
 
@@ -549,7 +836,7 @@ public final class BLibPathFinder {
             recordTiming(recorder, PathSearchTimingPhase.PATH_BUILD, pathBuildStart);
         }
 
-        var termination = visitedCount >= searchConfig.maxSearchNodes()
+        var termination = visitedCount >= activeNodeLimit
             ? PathSearchTermination.BUDGET_EXHAUSTED
             : PathSearchTermination.OPEN_SET_EXHAUSTED;
         if (path == null && bestNode == startNode) {
@@ -676,12 +963,18 @@ public final class BLibPathFinder {
         var visitedCount = 0;
         var bestForwardRecord = startRecord;
         BidirectionalMeet meet = null;
+        var stopTicket = RUNNING_TICKET.get();
 
         while (
             !forwardOpenSet.isEmpty()
                 && !backwardOpenSet.isEmpty()
-                && visitedCount < searchConfig.maxSearchNodes()
+                && visitedCount < activeNodeLimit
         ) {
+            // Sep 28 - a superseded background search leaves at once instead of running to its node limit.
+            if (stopTicket != null && stopTicket.shouldStop()) {
+                return null;
+            }
+
             var directionSelectStart = startTiming(recorder);
             var expandForward = shouldExpandForwardBidirectional(forwardOpenSet, backwardOpenSet, visitedCount);
             recordTiming(recorder, PathSearchTimingPhase.BIDIRECTIONAL_DIRECTION_SELECT, directionSelectStart);
@@ -716,6 +1009,7 @@ public final class BLibPathFinder {
             }
 
             visitedCount++;
+            visitedNodesTotal++;
 
             if (expanded.forwardRecord() != null) {
                 bestForwardRecord = closerToGoal(expanded.forwardRecord(), bestForwardRecord, goalNode)
@@ -744,7 +1038,7 @@ public final class BLibPathFinder {
             bestNode = meet.forwardRecord().node();
             termination = PathSearchTermination.GOAL_REACHED;
         } else {
-            if (visitedCount >= searchConfig.maxSearchNodes()) {
+            if (visitedCount >= activeNodeLimit) {
                 termination = PathSearchTermination.BUDGET_EXHAUSTED;
             } else if (bestForwardRecord == startRecord) {
                 termination = PathSearchTermination.START_ONLY;
@@ -1156,7 +1450,13 @@ public final class BLibPathFinder {
     }
 
     private static long startTiming(@Nullable PathSearchDebugRecorder recorder) {
-        return recorder != null ? recorder.startTiming() : 0L;
+        if (recorder != null) {
+            return recorder.startTiming();
+        }
+
+        // Oct 6 - with no debug recorder attached, the same timing points feed /blib perf's path-phase table while a
+        // session runs on the server thread (one static read otherwise).
+        return BLibPerfProfiler.pathPhasesWanted() ? System.nanoTime() : 0L;
     }
 
     private static void recordTiming(
@@ -1166,6 +1466,8 @@ public final class BLibPathFinder {
     ) {
         if (recorder != null) {
             recorder.recordTiming(phase, startNanos);
+        } else if (startNanos != 0L) {
+            BLibPerfProfiler.recordPathPhase(phase.ordinal(), System.nanoTime() - startNanos);
         }
     }
 

@@ -15,7 +15,6 @@ import com.just.ai.goap.effect.Effect;
 import com.just.ai.goap.goal.Goal;
 import com.just.ai.goap.graph.Graph;
 import com.just.ai.goap.plan.Plan;
-import com.just.ai.goap.plan.executor.impl.ConcurrentPlanExecutor;
 import com.just.ai.goap.sensor.Sensor;
 import com.just.ai.goap.state.Blackboard;
 import com.just.ai.goap.state.ReadableWorldState;
@@ -41,6 +40,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import com.blib.api.common.goap.v1.GOAPUser;
+import com.blib.api.common.goap.v1.plan.FinishGuaranteePlanExecutor;
 import com.blib.mod.BLib;
 import com.blib.mod.client.render.goap.model.GOAPAgentDebugData;
 import com.blib.mod.client.render.goap.model.GOAPDiagnosticDetailData;
@@ -250,7 +250,10 @@ final class GOAPDebugPayloadBuilder {
         var executor = agent.getPlanExecutor();
         var plans = new ArrayList<GOAPPlanDebugData>();
 
-        if (executor instanceof ConcurrentPlanExecutor<LivingEntity> concurrent) {
+        // ⚠ Oct 5 - BLib agents now run a FinishGuaranteePlanExecutor wrapped around the concurrent one.
+        var concurrent = FinishGuaranteePlanExecutor.unwrapConcurrent(executor);
+
+        if (concurrent != null) {
             for (var plan : concurrent.getActivePlans()) {
                 plans.add(buildSinglePlanData(agent, plan, worldState));
             }
@@ -338,7 +341,9 @@ final class GOAPDebugPayloadBuilder {
         sensorEntries.sort(Comparator.comparing(entry -> entry.getKey().id()));
 
         for (var entry : sensorEntries) {
-            var sensor = entry.getValue();
+            // Profiler v3 may have wrapped the sensor for timing; the overlay shows the real one.
+            @SuppressWarnings("unchecked")
+            var sensor = (Sensor<? super LivingEntity>) com.blib.internal.common.perf.TimedSensors.unwrap(entry.getValue());
 
             if (!seenSensors.add(sensor)) {
                 continue;
@@ -656,7 +661,9 @@ final class GOAPDebugPayloadBuilder {
         var goalUsages = new IdentityHashMap<Goal, List<String>>();
         var activePlanCount = 0;
 
-        if (agent.getPlanExecutor() instanceof ConcurrentPlanExecutor<LivingEntity> concurrent) {
+        var concurrent = FinishGuaranteePlanExecutor.unwrapConcurrent(agent.getPlanExecutor());
+
+        if (concurrent != null) {
             for (var plan : concurrent.getActivePlans()) {
                 activePlanCount++;
                 var goal = plan.getGoal();

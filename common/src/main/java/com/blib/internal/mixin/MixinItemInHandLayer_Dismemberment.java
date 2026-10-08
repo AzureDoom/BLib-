@@ -16,6 +16,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.blib.api.client.render.v1.dismemberment.ModelPartResolverRegistry;
+import com.blib.api.common.dismemberment.v1.Dismemberable;
 
 /**
  * Skips rendering a held item on a parent body that already has its corresponding arm hidden by dismemberment. Without
@@ -39,6 +40,18 @@ public abstract class MixinItemInHandLayer_Dismemberment<T extends LivingEntity,
         int packedLight,
         CallbackInfo ci
     ) {
+        // ⚠⚠ ONLY WHEN THIS MOD HID THE ARM. An invisible arm part is not proof of dismemberment: other mods hide the
+        // vanilla arms to draw their own — Mekanism's MekaSuit chestplate sets both arms invisible for the whole
+        // render — and this cancel then made every held item vanish in third person ("gun models become invisible
+        // ... only the mekasuit chestplate"). A body with nothing detached is not ours to touch.
+        if (
+            !(livingEntity instanceof Dismemberable dismemberable)
+                || dismemberable.getDismembermentManager() == null
+                || !dismemberable.getDismembermentManager().hasAnyDetached()
+        ) {
+            return;
+        }
+
         @SuppressWarnings("unchecked")
         var self = (RenderLayer<T, M>) (Object) this;
         var parentModel = self.getParentModel();

@@ -33,6 +33,13 @@ public final class ModelPartResolverRegistry {
         RESOLVED_CACHE.clear();
     }
 
+    private static final org.slf4j.Logger LOGGER =
+        org.slf4j.LoggerFactory.getLogger(ModelPartResolverRegistry.class);
+
+    /** Model classes already reported as unresolvable - warn once, not once per frame. */
+    private static final java.util.Set<Class<?>> WARNED_MODELS =
+        java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
     public static @Nullable ModelPart resolve(EntityModel<?> model, String partName) {
         var resolver = resolverFor(model.getClass());
 
@@ -42,7 +49,32 @@ public final class ModelPartResolverRegistry {
 
         @SuppressWarnings({ "unchecked", "rawtypes" })
         var typed = (ModelPartResolver) resolver;
-        return typed.find(model, partName);
+
+        // 🚨🚨 A MODEL WE DO NOT RECOGNISE MUST NEVER CRASH THE CLIENT. Every built-in resolver walks a hard-coded
+        // part hierarchy - model.root().getChild("root").getChild("body") and so on - and ModelPart.getChild THROWS
+        // NoSuchElementException when a part is missing. Any mod or pack that supplies its own version of a vanilla
+        // model therefore took the whole render thread down with "Can't find part root".
+        //
+        // ⚠⚠ Reported on an ALLAY HOLDING AN ITEM: ItemInHandLayer asked whether the arm was detached, the allay
+        // resolver assumed vanilla's hierarchy, and the client crashed every time one came into view. Two separate
+        // clients, with resource packs already ruled out.
+        //
+        // ⭐ FAILING TO RESOLVE A PART IS NOT AN ERROR CONDITION - it simply means this model cannot be dismembered,
+        // which is the same answer as having no resolver at all. Caught here rather than in eleven separate
+        // resolvers so nothing added later can reintroduce it.
+        try {
+            return typed.find(model, partName);
+        } catch (RuntimeException exception) {
+            if (WARNED_MODELS.add(model.getClass())) {
+                LOGGER.warn(
+                    "BLib: {} does not match the expected part layout - dismemberment is disabled for it.",
+                    model.getClass().getName(),
+                    exception
+                );
+            }
+
+            return null;
+        }
     }
 
     private static ModelPartResolver<?> resolverFor(Class<?> modelClass) {

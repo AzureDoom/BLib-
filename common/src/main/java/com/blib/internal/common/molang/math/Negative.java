@@ -1,5 +1,8 @@
 package com.blib.internal.common.molang.math;
 
+/**
+ * Negative operator class This class is responsible for inverting given value
+ */
 public class Negative implements IValue {
 
     public IValue value;
@@ -11,6 +14,13 @@ public class Negative implements IValue {
     @Override
     public double get() {
         return -this.value.get();
+    }
+
+    @Override
+    public IValue simplify() {
+        this.value = this.value.simplify();
+
+        return this.value instanceof Constant ? new Constant(this.get()) : this;
     }
 
     @Override

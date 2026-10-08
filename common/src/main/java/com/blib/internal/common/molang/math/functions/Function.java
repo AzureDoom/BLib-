@@ -1,7 +1,21 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.common.molang.math.functions;
 
+import com.blib.internal.common.molang.math.Constant;
 import com.blib.internal.common.molang.math.IValue;
+import com.blib.internal.common.molang.math.functions.utility.DieRoll;
+import com.blib.internal.common.molang.math.functions.utility.DieRollInteger;
+import com.blib.internal.common.molang.math.functions.utility.Random;
+import com.blib.internal.common.molang.math.functions.utility.RandomInteger;
 
+/**
+ * Abstract function class This class provides function capability (i.e. giving it arguments and upon {@link #get()}
+ * method you receive output).
+ */
 public abstract class Function implements IValue {
 
     protected IValue[] args;
@@ -22,6 +36,42 @@ public abstract class Function implements IValue {
 
         this.args = values;
         this.name = name;
+    }
+
+    /**
+     * Get the value of nth argument
+     * <p>
+     * Folds this call to a constant when every argument is constant and the function is a built-in pure one. Custom
+     * functions from other mods are never folded: they may read game state even with no arguments.
+     */
+    @Override
+    public IValue simplify() {
+        var allConstant = true;
+
+        for (var i = 0; i < this.args.length; i++) {
+            this.args[i] = this.args[i].simplify();
+            allConstant &= this.args[i] instanceof Constant;
+        }
+
+        return allConstant && this.isBuiltInPure() ? new Constant(this.get()) : this;
+    }
+
+    private boolean isBuiltInPure() {
+        Class<?> type = this.getClass();
+
+        if (
+            type == Random.class
+                || type == RandomInteger.class
+                || type == DieRoll.class
+                || type == DieRollInteger.class
+        ) {
+            return false;
+        }
+
+        String pkg = type.getPackageName();
+
+        return pkg.startsWith("com.blib.internal.common.molang.math.functions.")
+            || pkg.equals("com.blib.internal.common.molang.functions");
     }
 
     public double getArg(int index) {
@@ -47,10 +97,16 @@ public abstract class Function implements IValue {
         return this.getName() + "(" + argsBuilder + ")";
     }
 
+    /**
+     * Get name of this function
+     */
     public String getName() {
         return this.name;
     }
 
+    /**
+     * Get minimum count of arguments this function needs
+     */
     public int getRequiredArguments() {
         return 0;
     }

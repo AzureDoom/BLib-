@@ -2,15 +2,15 @@ package com.blib.internal.client.posteffect;
 
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
-import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.util.Mth;
-import org.joml.Matrix4f;
 import org.jetbrains.annotations.ApiStatus;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
 
@@ -21,15 +21,16 @@ import com.blib.mod.BLib;
  * PACK OWNS THE MAIN RENDER TARGET.
  * <p>
  * <b>The precedent.</b> This is the shape vanilla's own glowing-entity outline uses \u2014 a separate render target,
- * entities drawn into it a second time, a post pass that reads it \u2014 and that keeps working with shader packs on. The
- * pattern is proven; this is not a new idea, only a new consumer.
+ * entities drawn into it a second time, a post pass that reads it \u2014 and that keeps working with shader packs on.
+ * The pattern is proven; this is not a new idea, only a new consumer.
  * <p>
  * <b>Why the cost is acceptable.</b> Measured on his own world across 112 samples: a median of 34 entities within 64
- * blocks and a maximum of 38. Drawing those a second time, only while the mask is down, is not a meaningful expense \u2014
- * and it was worth measuring rather than guessing, because a hive in view is a very different number from a few cows.
+ * blocks and a maximum of 38. Drawing those a second time, only while the mask is down, is not a meaningful expense
+ * \u2014 and it was worth measuring rather than guessing, because a hive in view is a very different number from a few
+ * cows.
  * <p>
- * \u26a0\u26a0 THIS PASS DELIBERATELY DOES NOT WRITE DEPTH. It borrows the main target's depth texture so entities occlude
- * against terrain correctly, but writing into it would corrupt the depth buffer Iris is still using for its own
+ * \u26a0\u26a0 THIS PASS DELIBERATELY DOES NOT WRITE DEPTH. It borrows the main target's depth texture so entities
+ * occlude against terrain correctly, but writing into it would corrupt the depth buffer Iris is still using for its own
  * composite passes. Depth TEST on, depth WRITE off, always.
  * <p>
  * <b>Stage 1 scope.</b> Per-entity classification uniforms are still pushed by consumer mixins that currently stand
@@ -64,11 +65,10 @@ public final class BLibIrisClassificationPass {
     /**
      * Runs the pass, if a shader pack is active and something actually wants a classification.
      * <p>
-     * \u26a0 Called at the END of the level pass, where the world's depth is complete but the hand has not yet been drawn
-     * \u2014 the same point the no-pack path snapshots depth, and for the same reason.
+     * \u26a0 Called at the END of the level pass, where the world's depth is complete but the hand has not yet been
+     * drawn \u2014 the same point the no-pack path snapshots depth, and for the same reason.
      */
     public static void run(DeltaTracker deltaTracker, Matrix4f frustumMatrix, Matrix4f projectionMatrix) {
-
         if (!BLibIrisStage2.isEnabled()) {
             return;
         }
@@ -128,7 +128,8 @@ public final class BLibIrisClassificationPass {
         // against the far plane and then vanished once the viewport was corrected. Correctly placed geometry should
         // now occlude against terrain properly.
         // ⭐⭐ DISABLE THE SCISSOR TEST. Scissor is GLOBAL GL state and we never set it, so this pass inherits
-        // whatever rectangle Iris or Sodium last used for their own passes \u2014 and every fragment outside it is thrown
+        // whatever rectangle Iris or Sodium last used for their own passes \u2014 and every fragment outside it is
+        // thrown
         // away. That clips the classification to part of the screen, which is why a single xenomorph came out with its
         // tail classified and its body missing, and why entities appeared and disappeared as the camera moved.
         //

@@ -10,6 +10,14 @@ import java.util.List;
 public class BLibRegistrationUtil {
 
     public static final List<Registry<?>> VANILLA_REGISTRATION_ORDER = List.of(
+        // ⚠⚠ FLUID MUST COME BEFORE BLOCK. A LiquidBlock resolves its FlowingFluid in its CONSTRUCTOR - vanilla's
+        // LiquidBlock builds a state cache from it right there - so a mod registering a fluid and its liquid block
+        // through BLib had the block built while the fluid was still unbound:
+        // NullPointerException: Trying to access unbound value: ResourceKey[minecraft:fluid / <mod>:<fluid>]
+        // FLUID was absent from this list entirely, so it fell into the unordered pass that runs AFTER every entry
+        // here - which meant no amount of init ordering in the mod could fix it. Vanilla itself loads Fluids before
+        // Blocks for exactly this reason.
+        BuiltInRegistries.FLUID,
         // Independent registries.
         BuiltInRegistries.BLOCK,
         BuiltInRegistries.DATA_COMPONENT_TYPE,

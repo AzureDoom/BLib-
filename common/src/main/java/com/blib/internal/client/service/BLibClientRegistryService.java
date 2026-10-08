@@ -6,6 +6,7 @@ import net.minecraft.client.color.item.ItemColor;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.MenuAccess;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
@@ -16,13 +17,18 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.item.ArmorMaterial;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -100,5 +106,34 @@ public interface BLibClientRegistryService {
         Supplier<? extends ParticleType<T>> particleTypeSupplier,
         ParticleEngine.SpriteParticleRegistration<T> spriteParticleRegistration
     );
+
+    /**
+     * The armor model another mod wants drawn for this stack, if the loader offers a hook for that, or null to use the
+     * vanilla layer textures. NeoForge answers through {@code IClientItemExtensions.getHumanoidArmorModel}, which is
+     * how GeckoLib and every other NeoForge armor mod supply a custom model; Fabric has no equivalent hook and returns
+     * null (GeckoLib on Fabric is reached directly, see {@code AzForeignArmor}).
+     */
+    default @Nullable HumanoidModel<?> getForeignArmorModel(
+        LivingEntity livingEntity,
+        ItemStack itemStack,
+        EquipmentSlot equipmentSlot,
+        HumanoidModel<?> original
+    ) {
+        return null;
+    }
+
+    /**
+     * The texture the loader resolves for one armor layer, honouring any per-item override the mod registered. Defaults
+     * to the material layer's own texture.
+     */
+    default ResourceLocation getForeignArmorTexture(
+        LivingEntity livingEntity,
+        ItemStack itemStack,
+        EquipmentSlot equipmentSlot,
+        ArmorMaterial.Layer layer,
+        boolean innerModel
+    ) {
+        return layer.texture(innerModel);
+    }
 
 }

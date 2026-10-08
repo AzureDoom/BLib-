@@ -28,12 +28,14 @@ import com.blib.api.common.faction.v1.FactionMember;
 import com.blib.api.common.faction.v1.ProtectionMode;
 import com.blib.api.common.faction.v1.RelationshipState;
 import com.blib.api.common.mod.v1.BLibMod;
+import com.blib.api.common.pathfinding.v1.cache.TerrainCacheRegistry;
 import com.blib.api.common.reputation.v1.ReputationKey;
 import com.blib.api.common.server.v1.ServerScheduler;
 import com.blib.internal.client.faction.ClientFactionCache;
 import com.blib.internal.client.render.armor.compat.ShoulderSurfingCompat;
 import com.blib.internal.client.territory.ClientTerritoryCache;
 import com.blib.internal.client.territory.compat.XaeroWorldMapCompat;
+import com.blib.internal.common.diagnostics.BLibDiagnosticSwitches;
 import com.blib.internal.common.entityreference.BLibEntityReferenceManager;
 import com.blib.internal.common.event.BLibGlobalEvents;
 import com.blib.internal.common.faction.BLibFactionManager;
@@ -78,6 +80,14 @@ public class BLib {
 
         LOGGER.info("Initializing BLib for platform '{}'", BLibAPI.getModLoaderType());
 
+        if (!BLibDiagnosticSwitches.CHUNK_EVENTS_ENABLED) {
+            LOGGER.warn(
+                "[BLib] DIAGNOSTIC MODE: -D{}=false - chunk load/unload/save events are OFF. Chunk-scoped BLib data "
+                    + "(territory claims etc.) will not load or save per chunk this session. Use a TEST WORLD only.",
+                BLibDiagnosticSwitches.CHUNK_EVENTS_PROPERTY
+            );
+        }
+
         BLibGameRules.initialize();
         BLibModPropertyAccess.INSTANCE.save();
 
@@ -112,6 +122,7 @@ public class BLib {
         BLib.MOD.events().onPlayerStartTrackingEntity().register(BLib::syncDataForTrackedEntity);
         // TODO: There's a small bug here. This runs for both client and server levels!
         BLib.MOD.events().postLevelTick().register(ServerScheduler::tick);
+        BLib.MOD.events().postLevelTick().register(com.blib.mod.common.territory.ClaimAwarenessTracker::tick);
         BLib.MOD.events().postLevelTick().register(BLibTerritoryContestManager.INSTANCE::tick);
         BLib.MOD.events().postLevelTick().register(BLibPlayerClaimContestNotifier.INSTANCE::tick);
         // TODO: There's a small bug here. This runs for both client and server levels!
@@ -140,6 +151,8 @@ public class BLib {
         BLib.MOD.events().onServerStopped().register(BLibDataStoreManager.INSTANCE::onServerStopped);
         BLib.MOD.events().onServerStopped().register(BLibPlayerClaimContestNotifier.INSTANCE::clear);
         BLib.MOD.events().onServerStopped().register(GOAPDebugTracker.INSTANCE::clear);
+        // Sep 28 - release every world's terrain caches; see TerrainCacheRegistry.clear() for why this is safe.
+        BLib.MOD.events().onServerStopped().register(server -> TerrainCacheRegistry.clear());
         BLib.MOD.events().onServerStopped().register(server -> ClientTerritoryCache.INSTANCE.clear());
         BLib.MOD.events().onServerStopped().register(server -> ClientFactionCache.INSTANCE.clear());
 

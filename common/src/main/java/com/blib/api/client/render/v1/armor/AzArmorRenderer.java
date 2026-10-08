@@ -31,10 +31,19 @@ public class AzArmorRenderer {
             config::createAnimator,
             config::modelLocation,
             animator -> {
-                if (animator.get(BLibDataComponents.AZ_ID.get()) != null) {
-                    return UUID.randomUUID();
-                }
-                return animator.get(BLibDataComponents.AZ_ID.get());
+                // ⚠⚠⚠ Aug 28 — THE BRANCHES WERE INVERTED, and the inversion was the armour-corruption bug that
+                // survived a full night of predator-side hunting. As written before: a stack WITH an AZ_ID returned
+                // UUID.randomUUID() ON EVERY CALL — a fresh context key per lookup — so its per-instance context
+                // could never be found again, provideBakedModel's miss path permanently handed back the SHARED
+                // baked model, and the per-slot visibility dance then mutated the SHARED bones. Every az armour
+                // renderer in every mod that touched that fallback inherited someone else's all-hidden bone state:
+                // armour drawing sixty times a second and putting nothing on screen, all mods breaking together,
+                // healed only by a full restart (caches die), untouched by F3+T (not resource listeners).
+                // Correct form: a stack that HAS an id keeps that id — stable context identity — and only an
+                // id-less stack mints a random one at animator creation.
+                var azId = animator.get(BLibDataComponents.AZ_ID.get());
+
+                return azId != null ? azId : UUID.randomUUID();
             }
         );
         this.rendererPipeline = createPipeline(config);

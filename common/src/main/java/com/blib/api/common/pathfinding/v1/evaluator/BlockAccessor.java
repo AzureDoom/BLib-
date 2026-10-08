@@ -2,6 +2,7 @@ package com.blib.api.common.pathfinding.v1.evaluator;
 
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.EmptyBlockGetter;
@@ -41,6 +42,8 @@ public final class BlockAccessor {
     // --- Block property cache (avoid virtual dispatch) ---
     private boolean @Nullable [] solidCache;
 
+    private boolean @Nullable [] climbableCache;
+
     private boolean @Nullable [] liquidCache;
 
     private boolean @Nullable [] passableCache;
@@ -78,6 +81,22 @@ public final class BlockAccessor {
      */
     public void cleanup() {
         this.level = null;
+    }
+
+    /**
+     * Drops every chunk this accessor is holding: the snapshot map and the cached section array.
+     * <p>
+     * ⚠⚠ Added Sep 28. {@link #cleanup()} only drops the level, so each pathing mob kept the chunks of its LAST search
+     * alive until it searched again — chunks the server had long since unloaded. ⚠ NOT folded into cleanup() on
+     * purpose: an async search's cleanup runs on a background thread, and releasing there was only made safe by
+     * {@code SearchTicket}, which guarantees no newer search is using this accessor. The pathfinder decides when to
+     * call this; nothing else should.
+     */
+    public void releaseChunks() {
+        chunkMap.clear();
+        cachedSections = null;
+        cachedChunkX = Integer.MIN_VALUE;
+        cachedChunkZ = Integer.MIN_VALUE;
     }
 
     /**
@@ -128,6 +147,21 @@ public final class BlockAccessor {
         return solidCache[id];
     }
 
+    /**
+     * {@return whether a body can stand in and move vertically through this block} Ladders, vines, scaffolding, weeping
+     * and twisting vines — vanilla's {@code minecraft:climbable} tag.
+     * <p>
+     * ⚠⚠ A CLIMBABLE IS NEITHER A WALL NOR A HOLE, AND THIS CLASS SAID BOTH. {@link #isSolid} is vanilla's
+     * {@code isSolid()}, which is "has any collision shape", so a LADDER column read as a wall the planner could never
+     * route through; a VINE has no collision, so a vine shaft read as open-but-unsupported — a hole. Vanilla's own node
+     * evaluator treats both as walkable; this is that knowledge for the BLib planner.
+     */
+    public boolean isClimbable(BlockState state) {
+        var id = Block.BLOCK_STATE_REGISTRY.getId(state);
+        ensurePropertyCached(state, id);
+        return climbableCache[id];
+    }
+
     public boolean isLiquid(BlockState state) {
         var id = Block.BLOCK_STATE_REGISTRY.getId(state);
         ensurePropertyCached(state, id);
@@ -166,6 +200,7 @@ public final class BlockAccessor {
         if (solidCache == null) {
             var stateCount = Block.BLOCK_STATE_REGISTRY.size();
             solidCache = new boolean[stateCount];
+            climbableCache = new boolean[stateCount];
             liquidCache = new boolean[stateCount];
             passableCache = new boolean[stateCount];
             propertyComputed = new boolean[stateCount];
@@ -176,9 +211,12 @@ public final class BlockAccessor {
         if (!propertyComputed[id]) {
             var solid = state.isSolid();
             var liquid = state.liquid();
+            var climbable = state.is(BlockTags.CLIMBABLE);
             solidCache[id] = solid;
             liquidCache[id] = liquid;
-            passableCache[id] = !solid && !liquid;
+            climbableCache[id] = climbable;
+            // ⚠ A ladder is "solid" (thin collision) but a body passes into it: passable, not blocked.
+            passableCache[id] = (!solid || climbable) && !liquid;
             propertyComputed[id] = true;
         }
     }

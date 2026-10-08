@@ -40,4 +40,8 @@ public class AzAnimationQueue {
     public boolean isEmpty() {
         return animationQueue.isEmpty();
     }
+
+    public int size() {
+        return animationQueue.size();
+    }
 }

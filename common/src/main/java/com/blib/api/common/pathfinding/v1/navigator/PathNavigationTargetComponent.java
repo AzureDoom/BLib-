@@ -98,6 +98,14 @@ final class PathNavigationTargetComponent implements PathNavigationAnchorResolve
     }
 
     boolean hasTargetMovedForRecalculation() {
+        return hasTargetMovedForRecalculation(0.0);
+    }
+
+    /**
+     * Oct 6 - chase budget: as above, but neither the search target nor the raw target counts as moved until it has
+     * gone at least {@code sqrt(minMoveSquared)} blocks. 0 is the old behaviour exactly.
+     */
+    boolean hasTargetMovedForRecalculation(double minMoveSquared) {
         var searchTarget = state.currentSearchTarget();
 
         if (searchTarget == null) {
@@ -105,8 +113,8 @@ final class PathNavigationTargetComponent implements PathNavigationAnchorResolve
         }
 
         return lastComputedTargetPos == null
-            || searchTarget.distSqr(lastComputedTargetPos) >= MIN_TARGET_MOVE_DISTANCE_SQUARED
-            || hasRawTargetMovedForRecalculation();
+            || searchTarget.distSqr(lastComputedTargetPos) >= Math.max(MIN_TARGET_MOVE_DISTANCE_SQUARED, minMoveSquared)
+            || hasRawTargetMovedForRecalculation(minMoveSquared);
     }
 
     BlockPos activeRawTargetPos() {
@@ -396,7 +404,7 @@ final class PathNavigationTargetComponent implements PathNavigationAnchorResolve
         return dx * dx + dz * dz;
     }
 
-    private boolean hasRawTargetMovedForRecalculation() {
+    private boolean hasRawTargetMovedForRecalculation(double minMoveSquared) {
         var rawTarget = state.currentRawTarget();
 
         if (rawTarget == null || lastComputedRawTargetPos == null) {
@@ -407,7 +415,7 @@ final class PathNavigationTargetComponent implements PathNavigationAnchorResolve
             ? TARGET_PROJECTION_REUSE_DISTANCE_SQUARED
             : MIN_TARGET_MOVE_DISTANCE_SQUARED;
 
-        return rawTarget.distSqr(lastComputedRawTargetPos) >= threshold;
+        return rawTarget.distSqr(lastComputedRawTargetPos) >= Math.max(threshold, minMoveSquared);
     }
 
     private PathfindingFeatures activePathfindingFeatures() {

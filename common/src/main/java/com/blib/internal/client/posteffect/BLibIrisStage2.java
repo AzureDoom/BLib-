@@ -15,11 +15,11 @@ import org.jetbrains.annotations.ApiStatus;
  * <b>What it disables when false</b>, each restoring the exact prior behaviour:
  * <ol>
  * <li>{@link BLibIrisClassificationPass} does not run at all.</li>
- * <li>{@link BLibMainTargetMRT#reconcileForShaderPackState()} becomes a no-op, so the auxiliary attachments are
- * created once at framebuffer creation and never destroyed or recreated.</li>
+ * <li>{@link BLibMainTargetMRT#reconcileForShaderPackState()} becomes a no-op, so the auxiliary attachments are created
+ * once at framebuffer creation and never destroyed or recreated.</li>
  * <li>{@link BLibPostEffectPipeline} stands down whenever a shader pack is active, as it always used to.</li>
- * <li>{@link BLibGbufferUniforms} returns to gating on {@code isAttached()} rather than {@code isAttachedToMainTarget()},
- * and stops making an exception for the classification pass.</li>
+ * <li>{@link BLibGbufferUniforms} returns to gating on {@code isAttached()} rather than
+ * {@code isAttachedToMainTarget()}, and stops making an exception for the classification pass.</li>
  * <li>{@link BLibDepthSnapshot#capture()} is skipped again while a pack is active.</li>
  * </ol>
  * <b>Default is ON.</b> The switch exists to isolate a fault, not to ship the feature disabled.

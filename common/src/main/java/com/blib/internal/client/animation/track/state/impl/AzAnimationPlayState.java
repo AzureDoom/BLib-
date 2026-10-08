@@ -44,6 +44,17 @@ public class AzAnimationPlayState<T> extends AzAnimationState<T> {
 
         if (hasAnimationFinished) {
             currentAnimation.playBehavior().onFinish(context);
+
+            // ⚠⚠ RE-READ THE CURRENT CLIP: onFinish may have HANDED OFF to a successor (PLAY_ONCE does, and resets the
+            // timer). Executing the captured local here drew the FINISHED clip at tick 0 — its opening pose — for one
+            // frame between the one-shot and the loop: the gauntlet door closed, snapped fully open, then drifted shut.
+            // Traced frame by frame Sep 12: root (4.63, -1.70, 0.26), arm 12.5 degrees, door -100 — close's t=0
+            // exactly.
+            currentAnimation = track.currentAnimation();
+
+            if (currentAnimation == null) {
+                return;
+            }
         }
 
         if (context.stateMachine().isStopped()) {

@@ -77,18 +77,22 @@ public final class BLibMainTargetMRT {
      * <p>
      * <b>This exists because one boolean was doing the work of two, and it corrupted the screen.</b> {@code attached}
      * has always been read as "the attachments are on the MAIN TARGET", and three call sites still depend on that
-     * reading. Once the Iris path started attaching them to a PRIVATE framebuffer instead, {@code attached} stayed
-     * true while its implied meaning had silently changed — and {@link #restoreDrawBuffers()}, which acts on whatever
+     * reading. Once the Iris path started attaching them to a PRIVATE framebuffer instead, {@code attached} stayed true
+     * while its implied meaning had silently changed — and {@link #restoreDrawBuffers()}, which acts on whatever
      * framebuffer is bound, began mapping seven draw buffers onto a main target that has exactly one attachment. That
-     * is the undefined-write state responsible for the grossly overexposed view, in EVERY vision mode including the
-     * one that does nothing.
+     * is the undefined-write state responsible for the grossly overexposed view, in EVERY vision mode including the one
+     * that does nothing.
      */
     private static boolean attachedToMainTarget;
 
-    /** Null until the first reconcile, so the very first call always establishes a baseline rather than assuming one. */
+    /**
+     * Null until the first reconcile, so the very first call always establishes a baseline rather than assuming one.
+     */
     private static Boolean lastKnownShaderPackActive;
 
-    /** The MainTarget FBO the auxiliary attachments belong to, so the clear can bind it rather than trust the caller. */
+    /**
+     * The MainTarget FBO the auxiliary attachments belong to, so the clear can bind it rather than trust the caller.
+     */
     private static int attachedFrameBufferId = -1;
 
     private BLibMainTargetMRT() {
@@ -103,8 +107,8 @@ public final class BLibMainTargetMRT {
      * TRUE ONLY WHEN THE ATTACHMENTS ARE ON THE MAIN RENDER TARGET, as opposed to the private Iris framebuffer.
      * <p>
      * Anything that touches GLOBAL GL state on behalf of the attachments must consult this, not {@link #isAttached()}.
-     * Colour masks and blend enables are per-draw-buffer but NOT per-framebuffer: setting them for our attachments
-     * sets them for whatever else is using those same draw-buffer indices, which under a shader pack is the pack's own
+     * Colour masks and blend enables are per-draw-buffer but NOT per-framebuffer: setting them for our attachments sets
+     * them for whatever else is using those same draw-buffer indices, which under a shader pack is the pack's own
      * gbuffer and composite passes.
      */
     public static boolean isAttachedToMainTarget() {
@@ -273,15 +277,62 @@ public final class BLibMainTargetMRT {
      * to put MainTarget back into MRT mode — otherwise subsequent frames silently drop writes to attachments 1-6 and
      * the auxiliary entity data "freezes" at whatever was there last.
      */
+    /**
+     * ⚠⚠ Aug 28, THE VEIL GUARD — aux draw buffers are LEVEL-PASS-ONLY. The GUI item ghosts under Veil were patched
+     * entity shaders writing the classification mask while inventory icons drew: draw buffers 1-6 stayed mapped on the
+     * main target all frame, so anything rendered with an entity shader after the vision consumed the mask still wrote
+     * it, and Veil's reordered post timing turned those late writes into visible ghosts. The mapping now lives only
+     * between the start of LevelRenderer.renderLevel and the moment the vision pipeline finishes consuming; outside
+     * that window bindWrite maps nothing, so aux outputs from GUI-era draws are simply discarded by GL. Under vanilla
+     * and Iris this changes nothing observable — those writes were wiped unread every frame anyway — it just stops them
+     * ever landing.
+     */
+    private static boolean levelPassActive;
+
+    public static void setLevelPassActive(boolean active) {
+        levelPassActive = active;
+
+        // ⚠⚠⚠ Aug 29 — GATED ON VEIL, and forgetting this here was a real regression on his Fabric install: when
+        // the window was scoped to Veil the two restore paths were gated but THIS method was not, so every install
+        // still unmapped the aux draw buffers at post-processing time and remapped them at level start. The window
+        // exists ONLY for Veil's GUI-ghost hole; on every other install the draw-buffer mapping must stay exactly
+        // as it was before it existed.
+        if (!attached || !attachedToMainTarget || !BLibIrisCompat.isVeilLoaded()) {
+            return;
+        }
+
+        var previousDrawFramebuffer = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+
+        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, attachedFrameBufferId);
+
+        if (active) {
+            mapAuxDrawBuffers();
+        } else {
+            GL30.glDrawBuffers(new int[] { GL_COLOR_ATTACHMENT0 });
+        }
+
+        GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, previousDrawFramebuffer);
+    }
+
     public static void restoreDrawBuffers() {
         // ⚠⚠ THE SECOND TEST IS THE WHOLE POINT. This maps draw buffers 0-6 onto WHATEVER FRAMEBUFFER IS BOUND, and
         // MainTarget.bindWrite calls it on every bind. When the attachments live on the Iris private framebuffer the
         // main target still has one attachment, so mapping seven onto it is undefined-write territory — which is
         // precisely how this corrupted the view.
-        if (!attached || !attachedToMainTarget) {
+        // ⚠⚠ Aug 28, SCOPED TO VEIL after a Fabric regression: with the window enforced everywhere, plain Fabric
+        // showed classification TRAILS — the stale-mask smear this class's own history documents — within hours of
+        // the change. The claim that the window "changes nothing observable" outside Veil was WRONG. The window's
+        // only purpose is the Veil GUI-ghost hole, so its restriction now applies ONLY when Veil is present;
+        // every other install keeps the always-mapped behaviour that weeks of play verified.
+        if (!attached || !attachedToMainTarget || (!levelPassActive && BLibIrisCompat.isVeilLoaded())) {
             return;
         }
 
+        mapAuxDrawBuffers();
+    }
+
+    /** The raw 0-6 mapping — used by the level-pass window AND unconditionally by the clear, which must map to wipe. */
+    private static void mapAuxDrawBuffers() {
         GL30.glDrawBuffers(
             new int[] {
                 GL_COLOR_ATTACHMENT0,
@@ -301,12 +352,12 @@ public final class BLibMainTargetMRT {
      * ⚠⚠ THIS USED TO DOCUMENT "caller must have the MainTarget FBO bound" AND TRUST IT — and that assumption is how
      * stale classification survived into the next frame. {@code glClearBufferfv} acts on the DRAW framebuffer, so if
      * anything else is bound when this runs it clears SOMEONE ELSE'S buffers and ours keep last frame's contents.
-     * Nothing then overwrites the pixels no geometry covers, and the old classification shows through as TRAILS
-     * smeared across the view as the camera turns — worst underwater, where the full-screen overlay deliberately
-     * suppresses auxiliary writes and so covers a large region that nothing else rewrites.
+     * Nothing then overwrites the pixels no geometry covers, and the old classification shows through as TRAILS smeared
+     * across the view as the camera turns — worst underwater, where the full-screen overlay deliberately suppresses
+     * auxiliary writes and so covers a large region that nothing else rewrites.
      * <p>
-     * ⭐ Third mod-interaction bug in one day from the same root: trusting a GL binding we did not set. Bind
-     * explicitly, restore explicitly.
+     * ⭐ Third mod-interaction bug in one day from the same root: trusting a GL binding we did not set. Bind explicitly,
+     * restore explicitly.
      */
     public static void clearAuxiliaryAttachments() {
         if (!attached || attachedFrameBufferId == -1) {
@@ -331,8 +382,9 @@ public final class BLibMainTargetMRT {
         GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, attachedFrameBufferId);
 
         // The clears below address DRAW BUFFERS by index, so the aux attachments must be mapped into the draw-buffer
-        // list first — folded in here so the two can never be issued against different framebuffers.
-        restoreDrawBuffers();
+        // list first — folded in here so the two can never be issued against different framebuffers. Mapped RAW,
+        // not through the level-pass gate: the clear must always be able to wipe.
+        mapAuxDrawBuffers();
 
         GL30.glClearBufferfv(GL30.GL_COLOR, 1, new float[] { 0.0F, 0.0F, 0.0F, 0.0F });
         GL30.glClearBufferfv(GL30.GL_COLOR, 2, new float[] { 0.0F, 0.0F, 0.0F, 0.0F });
@@ -340,6 +392,12 @@ public final class BLibMainTargetMRT {
         GL30.glClearBufferfv(GL30.GL_COLOR, 4, new float[] { 0.0F, 0.0F, 0.0F, 0.0F });
         GL30.glClearBufferfv(GL30.GL_COLOR, 5, new float[] { 0.0F, 0.0F, 0.0F, 0.0F });
         GL30.glClearBufferfv(GL30.GL_COLOR, 6, new float[] { 0.0F, 0.0F, 0.0F, 0.0F });
+
+        // Outside the level-pass window the mapping drops straight back to colour-0 — the clear may run at frame
+        // start, and leaving 1-6 mapped there would re-open the GUI-write hole this class exists to close.
+        if (!levelPassActive && BLibIrisCompat.isVeilLoaded()) {
+            GL30.glDrawBuffers(new int[] { GL_COLOR_ATTACHMENT0 });
+        }
 
         GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, previousDrawFramebuffer);
     }
@@ -424,9 +482,9 @@ public final class BLibMainTargetMRT {
      * Takes the auxiliary attachments back off the main target and restores a single-draw-buffer configuration.
      * <p>
      * ⚠⚠ {@link #destroy()} ALONE IS NOT ENOUGH AND THAT IS THE WHOLE POINT. It releases the textures, but the
-     * framebuffer's draw-buffer list still names attachments 1-6 — and a draw buffer pointing at nothing is exactly
-     * the undefined-write situation that has already cost this renderer several days under Sodium. The attachment
-     * points are cleared explicitly and the draw-buffer list is put back to attachment 0 alone, before the textures go.
+     * framebuffer's draw-buffer list still names attachments 1-6 — and a draw buffer pointing at nothing is exactly the
+     * undefined-write situation that has already cost this renderer several days under Sodium. The attachment points
+     * are cleared explicitly and the draw-buffer list is put back to attachment 0 alone, before the textures go.
      */
     private static void detachFromMainTarget() {
         if (attachedFrameBufferId != -1) {

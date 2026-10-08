@@ -93,11 +93,16 @@ public class AzItemModelRenderer extends AzModelRenderer<UUID, ItemStack> {
         var isArmBone = AzItemArmRenderUtil.isArmBone(bone) && !firstPerson;
 
         if (animator != null) {
-            // Check all animation tracks to see if any are playing
+            // ⚠⚠ "PLAYING" HERE MEANS THE TRACK HAS AN ANIMATION, NOT THAT ITS STATE MACHINE IS IN THE PLAY STATE.
+            // This used to test stateMachine().isPlaying(), which is false in TRANSITION (every replay passes
+            // through it, even at transition length 0) and false in STOP (where a PLAY_ONCE lands the instant it
+            // finishes, with its final pose still on the bones). Both gaps hid the skin arm for a frame or a tick —
+            // the arm blinked out on every one-shot. A track that has a current animation, or is in any state but
+            // STOP, has a pose worth drawing an arm for.
             for (var track : animator.getAnimationTrackContainer().getAll()) {
                 if (
-                    track instanceof AzAnimationTrack<?> azTrack && azTrack.stateMachine()
-                        .isPlaying()
+                    track instanceof AzAnimationTrack<?> azTrack
+                        && (azTrack.currentAnimation() != null || !azTrack.stateMachine().isStopped())
                 ) {
                     isAnimationPlaying = true;
                     break;

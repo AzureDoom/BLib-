@@ -72,9 +72,9 @@ public final class BLibDepthSnapshot {
     /**
      * DIAGNOSTIC ONLY. Counts completed captures so the mask probe can report how many landed between its ticks.
      * <p>
-     * ⭐ THE QUESTION THIS ANSWERS: thermal reads depth and lags; EM reads only the mask and does NOT lag. That puts
-     * the fault in the depth the post effect consumes. Either the snapshot is not being refreshed every frame, or it
-     * is refreshed and captures the wrong thing — and those need completely different repairs. A count of roughly the
+     * ⭐ THE QUESTION THIS ANSWERS: thermal reads depth and lags; EM reads only the mask and does NOT lag. That puts the
+     * fault in the depth the post effect consumes. Either the snapshot is not being refreshed every frame, or it is
+     * refreshed and captures the wrong thing — and those need completely different repairs. A count of roughly the
      * framerate means refreshing is fine and the content is suspect; a count near zero means the capture hook is not
      * running at all, which is the whole bug.
      * <p>

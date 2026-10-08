@@ -10,6 +10,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import com.blib.internal.common.diagnostics.BLibDiagnosticSwitches;
 import com.blib.internal.common.event.BLibGlobalEvents;
 
 @Mixin(ChunkMap.class)
@@ -21,6 +22,11 @@ public abstract class MixinChunkMap_SaveChunkData {
 
     @Inject(at = @At("RETURN"), method = "save")
     private void blib$onSave(ChunkAccess chunk, CallbackInfoReturnable<Boolean> ci) {
+        // Sep 28 - diagnostic kill switch (-Dblib.chunkEvents=false); see BLibDiagnosticSwitches. Default: on.
+        if (!BLibDiagnosticSwitches.CHUNK_EVENTS_ENABLED) {
+            return;
+        }
+
         var didSave = ci.getReturnValue();
 
         if (!didSave) {

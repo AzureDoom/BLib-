@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import com.blib.internal.common.diagnostics.BLibDiagnosticSwitches;
 import com.blib.internal.common.event.BLibGlobalEvents;
 
 @Mixin(ServerLevel.class)
@@ -34,6 +35,11 @@ public abstract class MixinServerLevel_Events {
 
     @Inject(at = @At("TAIL"), method = "unload")
     public void blib$onUnload(LevelChunk chunk, CallbackInfo ci) {
+        // Sep 28 - diagnostic kill switch (-Dblib.chunkEvents=false); see BLibDiagnosticSwitches. Default: on.
+        if (!BLibDiagnosticSwitches.CHUNK_EVENTS_ENABLED) {
+            return;
+        }
+
         var listeners = BLibGlobalEvents.CHUNK_UNLOAD.listeners();
 
         if (listeners.isEmpty()) {

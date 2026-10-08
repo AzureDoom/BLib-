@@ -30,6 +30,9 @@ public class AzBakedAnimationCache extends AzResourceCache {
 
     // TODO: Why is there no default animation file here?
     public CompletableFuture<Void> loadAnimations(Executor backgroundExecutor, ResourceManager resourceManager) {
+        // AzureLib 3.1.13 port: parsed Molang trees are shared through a cache; a resource reload starts it fresh.
+        com.blib.internal.common.molang.MolangParser.clearExpressionCache();
+
         return loadResources(
             backgroundExecutor,
             resourceManager,
