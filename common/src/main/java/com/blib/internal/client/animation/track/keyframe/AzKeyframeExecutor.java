@@ -52,6 +52,14 @@ public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
                 continue;
             }
 
+            // AzureLib 3.1.13 layering: bones outside the track's mask are skipped before their keyframes are
+            // evaluated. The all-bones mask (the default) skips the check entirely.
+            var mask = animationTrack.boneMask();
+
+            if (!mask.isAll() && !mask.includes(boneAnimationQueue.bone())) {
+                continue;
+            }
+
             var rotationKeyframes = boneAnimation.rotationKeyframes();
             var positionKeyframes = boneAnimation.positionKeyframes();
             var scaleKeyframes = boneAnimation.scaleKeyframes();

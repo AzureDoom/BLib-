@@ -75,6 +75,7 @@
     "posteffect.MixinModelPart_PerBoneLight",
     "posteffect.MixinRenderTarget_MRT",
     "posteffect.MixinShaderInstance_GbufferUniforms",
+    "posteffect.MixinVertexBuffer_VeilProbe",
     "MixinModelPart_Accessor",
     "MixinLivingEntity_ForceBlocking",
     "MixinQuadrupedModel_Accessor"

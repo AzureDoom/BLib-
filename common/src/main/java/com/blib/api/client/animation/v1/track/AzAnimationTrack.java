@@ -65,6 +65,15 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
 
     private AzAnimationProperties animationProperties;
 
+    // AzureLib 3.1.13 layering. Defaults (weight 1, OVERRIDE, every bone) reproduce the pre-layering result exactly.
+    private double weight = 1;
+
+    private AzBlendMode blendMode = AzBlendMode.OVERRIDE;
+
+    private AzBoneMask boneMask = AzBoneMask.ALL;
+
+    private final AzWeightFade weightFade = new AzWeightFade();
+
     AzAnimationTrack(
         String name,
         AzAnimator<?, T> animator,
@@ -130,8 +139,13 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
         trackTimer.update();
         // Run state machine updates.
         stateMachine.update();
+        // Advance any weight fade before applying this frame's values (AzureLib 3.1.13 layering).
+        if (weightFade.isActive()) {
+            weight = weightFade.update(animator.context().timer().getAnimTime());
+        }
+
         // Update bone animation queue cache.
-        boneAnimationQueueCache.update(animationProperties.easingType());
+        boneAnimationQueueCache.update(animationProperties.easingType(), weight, blendMode);
 
         if (DEBUG_TRACE_FRAMES > 0) {
             DEBUG_TRACE_FRAMES--;
@@ -328,6 +342,65 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
 
     public AzAnimationTrackStateMachine<T> stateMachine() {
         return stateMachine;
+    }
+
+    /** @return this track's layer weight, 0 to 1 (AzureLib 3.1.13 layering) */
+    public double weight() {
+        return weight;
+    }
+
+    /**
+     * Sets the layer weight immediately, cancelling any fade.
+     *
+     * @param weight 0 (no effect) to 1 (full effect); clamped
+     */
+    public void setWeight(double weight) {
+        this.weightFade.cancel();
+        this.weight = clampWeight(weight);
+    }
+
+    /**
+     * Fades the layer weight to a target over time; a non-positive length sets it at once.
+     *
+     * @param targetWeight the weight to reach; clamped to 0..1
+     * @param lengthTicks  how long to take, in animation ticks
+     */
+    public void fadeWeight(double targetWeight, double lengthTicks) {
+        if (!(lengthTicks > 0)) {
+            setWeight(targetWeight);
+            return;
+        }
+
+        this.weightFade.start(this.weight, clampWeight(targetWeight), lengthTicks);
+    }
+
+    /** @return whether a weight fade is running */
+    public boolean isFadingWeight() {
+        return weightFade.isActive();
+    }
+
+    private static double clampWeight(double weight) {
+        return Double.isNaN(weight) ? 0 : Math.max(0, Math.min(1, weight));
+    }
+
+    /** @return how this track combines with the layers below it */
+    public AzBlendMode blendMode() {
+        return blendMode;
+    }
+
+    /** @param blendMode how this track combines with the layers below it; null means OVERRIDE */
+    public void setBlendMode(AzBlendMode blendMode) {
+        this.blendMode = blendMode == null ? AzBlendMode.OVERRIDE : blendMode;
+    }
+
+    /** @return the bones this track may animate */
+    public AzBoneMask boneMask() {
+        return boneMask;
+    }
+
+    /** @param boneMask the bones this track may animate; null means every bone */
+    public void setBoneMask(AzBoneMask boneMask) {
+        this.boneMask = boneMask == null ? AzBoneMask.ALL : boneMask;
     }
 
     public void setCurrentAnimation(AzQueuedAnimation currentAnimation) {

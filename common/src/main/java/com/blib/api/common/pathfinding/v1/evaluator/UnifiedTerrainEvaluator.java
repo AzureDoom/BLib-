@@ -121,25 +121,22 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
      * ⭐ Oct 6 - CACHES THAT SURVIVE BETWEEN SEARCHES. /blib perf: neighbour generation was 87.5% of all search time at
      * 15-24 us per node, and the reason is that every lookup cache below was cleared at the start of EVERY search - a
      * mob chasing something re-classified the same corridor from scratch each time it re-searched. They are now kept
-     * while all of this holds, and cleared otherwise:
-     *   - same live level as the last search (background searches read a chunk snapshot, so they always start clean
-     *     and leave nothing to reuse);
-     *   - the same feature set and terrain costs (checked once per search, after the finder has applied both);
-     *   - no block changed inside the area the caches cover since the last search ({@link BlockChangeLog});
-     *   - the caches are less than {@value #MAX_REUSE_AGE_TICKS} ticks old and under {@value #MAX_RETAINED_ENTRIES}
-     *     entries, and the area they cover is no wider than {@value #MAX_RETAINED_SPAN} blocks;
-     *   - /gamerule blibPathCacheReuse is on.
-     * Anything uncertain clears them - exactly the old behaviour - so the worst case is the old cost, never a wrong path.
+     * while all of this holds, and cleared otherwise: - same live level as the last search (background searches read a
+     * chunk snapshot, so they always start clean and leave nothing to reuse); - the same feature set and terrain costs
+     * (checked once per search, after the finder has applied both); - no block changed inside the area the caches cover
+     * since the last search ({@link BlockChangeLog}); - the caches are less than {@value #MAX_REUSE_AGE_TICKS} ticks
+     * old and under {@value #MAX_RETAINED_ENTRIES} entries, and the area they cover is no wider than {@value
+     * #MAX_RETAINED_SPAN} blocks; - /gamerule blibPathCacheReuse is on. Anything uncertain clears them - exactly the
+     * old behaviour - so the worst case is the old cost, never a wrong path.
      */
     /*
-     * ⚠⚠ FOR THE PLANNED WALL AND CEILING CRAWL (blib_surface_crawl_design) - three rules this reuse depends on:
-     *   1. Every new lookup cache must be cleared in clearSearchCaches() AND counted in cachedEntryCount(). A cache
-     *      missing from the first survives a block change and routes through a wall that is no longer there.
-     *   2. A cache whose answer depends on posture or surface (floor / wall / ceiling) must carry it in its KEY, as
-     *      entityBoxClearanceCache carries the body height. Position alone is not enough once one cell can be
-     *      stood on, clung to from the side, or hung from.
-     *   3. Anything a crawl node reads further than the margin in canKeepCaches (8 + footprint + drop sideways,
-     *      16 + step up, 16 + fall down from the cells the search worked at) must widen that margin.
+     * ⚠⚠ FOR THE PLANNED WALL AND CEILING CRAWL (blib_surface_crawl_design) - three rules this reuse depends on: 1.
+     * Every new lookup cache must be cleared in clearSearchCaches() AND counted in cachedEntryCount(). A cache missing
+     * from the first survives a block change and routes through a wall that is no longer there. 2. A cache whose answer
+     * depends on posture or surface (floor / wall / ceiling) must carry it in its KEY, as entityBoxClearanceCache
+     * carries the body height. Position alone is not enough once one cell can be stood on, clung to from the side, or
+     * hung from. 3. Anything a crawl node reads further than the margin in canKeepCaches (8 + footprint + drop
+     * sideways, 16 + step up, 16 + fall down from the cells the search worked at) must widen that margin.
      * breakCandidateMemo is keyed by position only because only STANDING ground nodes break blocks today; a crawling
      * break would need the posture in that key too.
      */
@@ -227,7 +224,8 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
         var live = level instanceof net.minecraft.world.level.Level world && !world.isClientSide() ? world : null;
         var decision = live != null ? cacheDecision(live) : CacheDecision.FIRST;
-        var keep = decision == CacheDecision.REUSED;
+        var keep = decision == CacheDecision.REUSED || decision == CacheDecision.PATCHED;
+        lastDecision = decision;
         reusedThisSearch = keep;
         prepareCommon(keep);
 
@@ -277,8 +275,22 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         /** A block changed inside the covered area since the last search. */
         BLOCK_CHANGED,
         /** Kept at first, then thrown out because this search's features or terrain costs differ. */
-        SETTINGS_CHANGED
+        SETTINGS_CHANGED,
+        /** Kept, after throwing away only the answers near the blocks that changed (#14). */
+        PATCHED
     }
+
+    /** Oct 7 (#14) - more changed sections than this since the last search and the whole cache is rebuilt instead. */
+    private static final int MAX_PATCH_SECTIONS = 32;
+
+    /**
+     * Oct 7 (#14) - patching checks every cached answer against every changed area; above this many checks a rebuild is
+     * cheaper, so the cache is rebuilt instead.
+     */
+    private static final long MAX_PATCH_WORK = 400_000L;
+
+    /** This search's cache decision, so a later settings mismatch is moved off the right counter. */
+    private CacheDecision lastDecision = CacheDecision.FIRST;
 
     /** True while this search is running on caches kept from the previous one (settings not yet checked). */
     private boolean reusedThisSearch;
@@ -322,7 +334,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
         var up = 16 + config.getMaxStepHeight();
         var down = 16 + config.getMaxFallDistance();
 
-        var changed = BlockChangeLog.changedSince(
+        var changed = BlockChangeLog.changedSectionsSince(
             live,
             retainedSequence,
             boundsMinX - horizontal,
@@ -333,7 +345,114 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
             boundsMaxZ + horizontal
         );
 
-        return changed ? CacheDecision.BLOCK_CHANGED : CacheDecision.REUSED;
+        if (changed == null) {
+            return CacheDecision.BLOCK_CHANGED;
+        }
+
+        if (changed.length == 0) {
+            return CacheDecision.REUSED;
+        }
+
+        // Oct 7 (#14): in a living hive something nearby changes between almost every search (acid eating blocks,
+        // drones building), and 59% of searches threw the whole cache away for it. Throw away only the answers that
+        // could depend on a changed block - the same margins as the check above, applied around each changed section -
+        // and keep the rest. Too many changes, or too much checking, and it rebuilds as before.
+        if (changed.length > MAX_PATCH_SECTIONS || cachedEntryCount() * changed.length > MAX_PATCH_WORK) {
+            return CacheDecision.BLOCK_CHANGED;
+        }
+
+        evictNear(changed, horizontal, up, down);
+
+        return CacheDecision.PATCHED;
+    }
+
+    /**
+     * Oct 7 (#14) - removes every cached answer that might read a block inside one of the changed sections.
+     * <p>
+     * An answer at cell P reads blocks up to {@code horizontal} away sideways, {@code up} above and {@code down} below.
+     * So a change at C can affect P when P.x is within {@code horizontal} of C.x, and P.y lies between C.y - up and C.y
+     * + down. Applied to the whole changed section, that gives one block box per section; any answer inside any box
+     * goes.
+     */
+    private void evictNear(long[] changedSections, int horizontal, int up, int down) {
+        var boxes = new int[changedSections.length * 6];
+
+        for (var i = 0; i < changedSections.length; i++) {
+            var section = changedSections[i];
+            var minX = net.minecraft.core.SectionPos.x(section) << 4;
+            var minY = net.minecraft.core.SectionPos.y(section) << 4;
+            var minZ = net.minecraft.core.SectionPos.z(section) << 4;
+            var o = i * 6;
+            boxes[o] = minX - horizontal;
+            boxes[o + 1] = minY - up;
+            boxes[o + 2] = minZ - horizontal;
+            boxes[o + 3] = minX + 15 + horizontal;
+            boxes[o + 4] = minY + 15 + down;
+            boxes[o + 5] = minZ + 15 + horizontal;
+        }
+
+        evictKeys(feetOpenCache.keySet(), boxes);
+        evictKeys(waterBlockCache.keySet(), boxes);
+        evictKeys(groundSupportCache.keySet(), boxes);
+        evictKeys(supportTopCache.keySet(), boxes);
+        evictKeys(fullCollisionBlockCache.keySet(), boxes);
+        evictKeys(footprintNodeSupportCache.keySet(), boxes);
+        evictKeys(waterFootprintCache.keySet(), boxes);
+        evictKeys(dropSupportCache.keySet(), boxes);
+        evictKeys(wallProximityCache.keySet(), boxes);
+        evictKeys(supportTopSearchCache.keySet(), boxes);
+        evictKeys(stepDownLandingScanCache.keySet(), boxes);
+        evictKeys(dropOpeningLandingScanCache.keySet(), boxes);
+        entityBoxClearanceCache.keySet()
+            .removeIf(
+                key -> insideAny(
+                    boxes,
+                    net.minecraft.util.Mth.floor(Double.longBitsToDouble(key.centerX())),
+                    net.minecraft.util.Mth.floor(Double.longBitsToDouble(key.feetY())),
+                    net.minecraft.util.Mth.floor(Double.longBitsToDouble(key.centerZ()))
+                )
+            );
+        steppedFootprintSupportCache.keySet().removeIf(key -> footprintKeyInside(boxes, key));
+        anySteppedFootprintSupportCache.keySet().removeIf(key -> footprintKeyInside(boxes, key));
+    }
+
+    private static boolean footprintKeyInside(int[] boxes, FootprintScanKey key) {
+        return insideAny(
+            boxes,
+            net.minecraft.util.Mth.floor(Double.longBitsToDouble(key.centerX())),
+            net.minecraft.util.Mth.floor(Double.longBitsToDouble(key.feetY())),
+            net.minecraft.util.Mth.floor(Double.longBitsToDouble(key.centerZ()))
+        );
+    }
+
+    /** Keys are BlockPos.asLong cells (packBlockKey); removes those inside any box. */
+    private static void evictKeys(it.unimi.dsi.fastutil.longs.LongSet keys, int[] boxes) {
+        var iterator = keys.iterator();
+
+        while (iterator.hasNext()) {
+            var key = iterator.nextLong();
+
+            if (insideAny(boxes, BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key))) {
+                iterator.remove();
+            }
+        }
+    }
+
+    private static boolean insideAny(int[] boxes, int x, int y, int z) {
+        for (var o = 0; o < boxes.length; o += 6) {
+            if (
+                x >= boxes[o]
+                    && y >= boxes[o + 1]
+                    && z >= boxes[o + 2]
+                    && x <= boxes[o + 3]
+                    && y <= boxes[o + 4]
+                    && z <= boxes[o + 5]
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private long cachedEntryCount() {
@@ -373,7 +492,7 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
             }
 
             if (reusedThisSearch) {
-                com.blib.internal.common.perf.BLibPerfProfiler.recordPathCacheSettingsMismatch();
+                com.blib.internal.common.perf.BLibPerfProfiler.recordPathCacheSettingsMismatch(lastDecision.ordinal());
                 reusedThisSearch = false;
             }
 
@@ -2313,8 +2432,8 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
     }
 
     /**
-     * Oct 6 - the break decision for a cell, worked out once per search. Without a debug recorder only: with one,
-     * every rejection must be recorded where it happens, so the decision is made fresh each time as before.
+     * Oct 6 - the break decision for a cell, worked out once per search. Without a debug recorder only: with one, every
+     * rejection must be recorded where it happens, so the decision is made fresh each time as before.
      */
     private @Nullable BlockBreakCandidate memoizedGroundBlockBreakCandidate(int x, int y, int z, PathPosture posture) {
         if (debugRecorder != null) {

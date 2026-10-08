@@ -24,6 +24,18 @@ public class AutoGlowingTexture extends AzAbstractTexture {
 
     protected final ResourceLocation glowLayer;
 
+    /** AzureLib 3.1.13 - {@return whether the texture has an animation section in its .mcmeta} */
+    private static boolean hasAnimationMetadata(ResourceManager resourceManager, ResourceLocation texture) {
+        return resourceManager.getResource(texture).flatMap(resource -> {
+            try {
+                return resource.metadata()
+                    .getSection(net.minecraft.client.resources.metadata.animation.AnimationMetadataSection.SERIALIZER);
+            } catch (java.io.IOException exception) {
+                return java.util.Optional.empty();
+            }
+        }).isPresent();
+    }
+
     public AutoGlowingTexture(ResourceLocation originalLocation, ResourceLocation location) {
         super(originalLocation);
         this.textureBase = originalLocation;
@@ -36,7 +48,21 @@ public class AutoGlowingTexture extends AzAbstractTexture {
         AbstractTexture originalTexture;
 
         try {
-            originalTexture = mc.submit(() -> mc.getTextureManager().getTexture(this.textureBase)).get();
+            // AzureLib 3.1.13: if another mod (GeckoLib, for one) replaced the base texture's animated wrapper with its
+            // own, the glowmask was built from the whole strip of frames squashed together and the glow parts stayed
+            // visible on the base. An animated base that is not ours is re-registered as ours first.
+            originalTexture = mc.submit(() -> {
+                var textureManager = mc.getTextureManager();
+                var texture = textureManager.getTexture(this.textureBase);
+
+                if (!(texture instanceof AnimatableTexture) && hasAnimationMetadata(resourceManager, this.textureBase)) {
+                    var ours = new AnimatableTexture(this.textureBase);
+                    textureManager.register(this.textureBase, ours);
+                    texture = ours;
+                }
+
+                return texture;
+            }).get();
         } catch (InterruptedException | ExecutionException e) {
             throw new IOException("Failed to load original texture: " + this.textureBase, e);
         }

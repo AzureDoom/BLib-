@@ -52,12 +52,50 @@ public class AzAnimationTrackBuilder<T> {
         return this;
     }
 
+    // AzureLib 3.1.13 layering options, applied after the track is built.
+    private double weight = 1;
+
+    private AzBlendMode blendMode = AzBlendMode.OVERRIDE;
+
+    private AzBoneMask boneMask = AzBoneMask.ALL;
+
+    /**
+     * @param weight the track's starting layer weight, 0 to 1
+     * @return this builder
+     */
+    public AzAnimationTrackBuilder<T> setWeight(double weight) {
+        this.weight = weight;
+        return this;
+    }
+
+    /**
+     * @param blendMode how the track combines with the tracks added before it
+     * @return this builder
+     */
+    public AzAnimationTrackBuilder<T> setBlendMode(AzBlendMode blendMode) {
+        this.blendMode = blendMode;
+        return this;
+    }
+
+    /**
+     * @param boneMask the bones the track may animate
+     * @return this builder
+     */
+    public AzAnimationTrackBuilder<T> setBoneMask(AzBoneMask boneMask) {
+        this.boneMask = boneMask;
+        return this;
+    }
+
     public AzAnimationTrack<T> build() {
-        return new AzAnimationTrack<>(
+        var track = new AzAnimationTrack<>(
             name,
             animator,
             animationProperties,
             keyframeCallbacks
         );
+        track.setWeight(weight);
+        track.setBlendMode(blendMode);
+        track.setBoneMask(boneMask);
+        return track;
     }
 }

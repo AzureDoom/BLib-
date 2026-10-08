@@ -57,7 +57,10 @@ public class AzAnimationPlayState<T> extends AzAnimationState<T> {
             }
         }
 
-        if (context.stateMachine().isStopped()) {
+        // AzureLib 3.1.13: also return if the play behavior moved the track into a transition - the bones are already
+        // snapshotted for the next stage, so running the finished animation's keyframes now would flash its first
+        // frame for one update. (BLib's play-once hands off without a transition, so it is unaffected.)
+        if (context.stateMachine().isStopped() || context.stateMachine().isTransitioning()) {
             // Nothing more to do at this point since we can't play the animation again, so return.
             return;
         }

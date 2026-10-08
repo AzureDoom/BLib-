@@ -223,10 +223,22 @@ public final class BLibPerfReport {
 
         for (var row : rows) {
             var cell = row.getValue();
+            var name = row.getKey();
+
+            // Oct 7: a type with no registered name reports "<null>" - point at one so it can be found in the world.
+            if (name == null || name.contains("null")) {
+                var sample = BLibPerfProfiler.blockEntitySamplePosition(name);
+                name = (name == null ? "<null>" : name)
+                    + (sample == null
+                        ? ""
+                        : " at " + net.minecraft.core.BlockPos.getX(sample) + " " + net.minecraft.core.BlockPos.getY(sample)
+                            + " " + net.minecraft.core.BlockPos.getZ(sample));
+            }
+
             text.append(
                 BLibPerfProfiler.formatLocale(
                     "%-48s %7d %10.3f %6.1f%% %12.2f%n",
-                    row.getKey(),
+                    name,
                     cell[2],
                     nanosToMillis(cell[0]) / ticks,
                     percent(cell[0], serverTickNanos),
@@ -244,7 +256,8 @@ public final class BLibPerfReport {
         "rebuilt: older than 30 s",
         "rebuilt: area or caches too large",
         "rebuilt: a block changed nearby",
-        "rebuilt: different search settings"
+        "rebuilt: different search settings",
+        "kept, after patching nearby changes"
     };
 
     /**

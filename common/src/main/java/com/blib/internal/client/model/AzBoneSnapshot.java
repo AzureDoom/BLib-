@@ -22,6 +22,14 @@ public class AzBoneSnapshot {
 
     private boolean rotAnimInProgress = true;
 
+    // AzureLib 3.1.13 layering: the bone-cache frame each channel was last written in, so a later track this frame
+    // blends over the earlier track's result instead of over the bind pose.
+    private long rotationWriteFrame = -1;
+
+    private long positionWriteFrame = -1;
+
+    private long scaleWriteFrame = -1;
+
     private boolean posAnimInProgress = true;
 
     private boolean scaleAnimInProgress = true;
@@ -126,6 +134,30 @@ public class AzBoneSnapshot {
     public void stopPosAnim(double tick) {
         this.posAnimInProgress = false;
         this.lastResetPositionTick = tick;
+    }
+
+    public boolean isRotationWrittenInFrame(long frame) {
+        return this.rotationWriteFrame == frame;
+    }
+
+    public boolean isPositionWrittenInFrame(long frame) {
+        return this.positionWriteFrame == frame;
+    }
+
+    public boolean isScaleWrittenInFrame(long frame) {
+        return this.scaleWriteFrame == frame;
+    }
+
+    public void markRotationWritten(long frame) {
+        this.rotationWriteFrame = frame;
+    }
+
+    public void markPositionWritten(long frame) {
+        this.positionWriteFrame = frame;
+    }
+
+    public void markScaleWritten(long frame) {
+        this.scaleWriteFrame = frame;
     }
 
     public void startRotAnim() {

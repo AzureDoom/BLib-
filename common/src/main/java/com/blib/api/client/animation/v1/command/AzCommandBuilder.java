@@ -131,6 +131,52 @@ public class AzCommandBuilder<T> {
         return setTransitionSpeed(AzTarget.track(handle), transitionSpeed);
     }
 
+    /**
+     * Sets the targeted track's layer weight at once (AzureLib 3.1.13 layering).
+     *
+     * @param target the track(s)
+     * @param weight 0 (no effect) to 1 (full effect)
+     * @return this builder
+     */
+    public AzCommandBuilder<T> setWeight(AzTarget target, double weight) {
+        actions.add(new com.blib.internal.client.animation.dispatch.command.action.impl.AzSetWeightAction<>(target, weight, 0));
+        return this;
+    }
+
+    /**
+     * @param handle the track
+     * @param weight 0 (no effect) to 1 (full effect)
+     * @return this builder
+     */
+    public AzCommandBuilder<T> setWeight(AzTrackHandle<? super T> handle, double weight) {
+        return setWeight(AzTarget.track(handle), weight);
+    }
+
+    /**
+     * Fades the targeted track's layer weight over time (AzureLib 3.1.13 layering).
+     *
+     * @param target    the track(s)
+     * @param weight    the weight to reach, 0 to 1
+     * @param fadeTicks animation ticks to take
+     * @return this builder
+     */
+    public AzCommandBuilder<T> fadeWeight(AzTarget target, double weight, double fadeTicks) {
+        actions.add(
+            new com.blib.internal.client.animation.dispatch.command.action.impl.AzSetWeightAction<>(target, weight, fadeTicks)
+        );
+        return this;
+    }
+
+    /**
+     * @param handle    the track
+     * @param weight    the weight to reach, 0 to 1
+     * @param fadeTicks animation ticks to take
+     * @return this builder
+     */
+    public AzCommandBuilder<T> fadeWeight(AzTrackHandle<? super T> handle, double weight, double fadeTicks) {
+        return fadeWeight(AzTarget.track(handle), weight, fadeTicks);
+    }
+
     public AzCommandBuilder<T> setStartTickOffset(AzTarget target, double tickOffset) {
         actions.add(new AzSetStartTickOffsetAction<>(target, tickOffset));
         return this;
@@ -191,6 +237,34 @@ public class AzCommandBuilder<T> {
         UnaryOperator<AzAnimationSequenceBuilder> builderUnaryOperator
     ) {
         return playSequence(AzTarget.track(handle), builderUnaryOperator);
+    }
+
+    /**
+     * Plays a reusable {@link com.blib.api.client.animation.v1.command.sequence.AzSequence} (AzureLib 3.1.13). Its
+     * timed events are delivered by an AzSequencePlayer, not by the command itself.
+     *
+     * @param target   the track(s) to play it on
+     * @param sequence the sequence
+     * @return this builder
+     */
+    public AzCommandBuilder<T> playSequence(
+        AzTarget target,
+        com.blib.api.client.animation.v1.command.sequence.AzSequence sequence
+    ) {
+        actions.add(new AzPlayAnimationSequenceAction<>(target, sequence.toAnimationSequence(), currentPolicy()));
+        return this;
+    }
+
+    /**
+     * @param handle   the track to play it on
+     * @param sequence the sequence
+     * @return this builder
+     */
+    public AzCommandBuilder<T> playSequence(
+        AzTrackHandle<? super T> handle,
+        com.blib.api.client.animation.v1.command.sequence.AzSequence sequence
+    ) {
+        return playSequence(AzTarget.track(handle), sequence);
     }
 
     public AzCommand<T> build() {

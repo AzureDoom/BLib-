@@ -50,10 +50,19 @@ public class AnimatableTexture extends SimpleTexture {
                 nativeImage = NativeImage.read(inputstream);
             }
 
+            // AzureLib 3.1.13: close the previous animation's GPU texture when this one is (re)loaded - every reload
+            // used to leak one.
+            AnimationContents previous = this.animationContents;
             this.animationContents = new AnimationContents(nativeImage, animMeta);
+
+            if (previous != null && previous.animatedTexture != null) {
+                onRenderThread(previous.animatedTexture::close);
+            }
 
             if (!this.animationContents.isValid()) {
                 nativeImage.close();
+                // AzureLib 3.1.13: an animation that turned invalid on reload must stop being treated as animated.
+                this.isAnimated = false;
 
                 return;
             }
@@ -78,6 +87,22 @@ public class AnimatableTexture extends SimpleTexture {
                     false,
                     false
                 );
+            });
+
+            // AzureLib 3.1.13: a reload rebuilds this texture's frames, so an auto-glowmask made from the old frames
+            // is rebuilt too - otherwise the glow layer was lost after F3+T or a resource pack change.
+            var glowPath = AzAbstractTexture.appendToPath(this.location, "_glowmask");
+            RenderSystem.recordRenderCall(() -> {
+                var textureManager = Minecraft.getInstance().getTextureManager();
+
+                if (
+                    textureManager.getTexture(
+                        glowPath,
+                        net.minecraft.client.renderer.texture.MissingTextureAtlasSprite.getTexture()
+                    ) instanceof AutoGlowingTexture
+                ) {
+                    textureManager.register(glowPath, new AutoGlowingTexture(this.location, glowPath));
+                }
             });
         }
     }

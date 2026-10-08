@@ -40,4 +40,53 @@ public abstract class TextureManagerMixin {
                 this.byPath.remove(path);
         }
     }
+
+    /**
+     * AzureLib 3.1.13 - textures that GAIN an animation from a resource pack now animate without a restart.
+     * <p>
+     * A texture first loaded without an animation is registered as a plain SimpleTexture, and a reload only reloads it
+     * in place, so the wrapper above never sees it again. At the start of a reload, every plain SimpleTexture whose
+     * resource now has an animation section is released; the next lookup wraps it as an AnimatableTexture. Done on the
+     * render thread, which owns the texture map and the GPU textures.
+     */
+    @Inject(method = "reload", at = @At("HEAD"))
+    private void blib$rewrapNewlyAnimated(
+        net.minecraft.server.packs.resources.PreparableReloadListener.PreparationBarrier barrier,
+        net.minecraft.server.packs.resources.ResourceManager resourceManager,
+        net.minecraft.util.profiling.ProfilerFiller preparationProfiler,
+        net.minecraft.util.profiling.ProfilerFiller reloadProfiler,
+        java.util.concurrent.Executor backgroundExecutor,
+        java.util.concurrent.Executor gameExecutor,
+        CallbackInfoReturnable<java.util.concurrent.CompletableFuture<Void>> callback
+    ) {
+        com.mojang.blaze3d.systems.RenderSystem.recordRenderCall(() -> {
+            var stale = new java.util.ArrayList<ResourceLocation>();
+
+            for (var entry : this.byPath.entrySet()) {
+                if (
+                    entry.getValue().getClass() == net.minecraft.client.renderer.texture.SimpleTexture.class
+                        && resourceManager.getResource(entry.getKey()).flatMap(resource -> {
+                            try {
+                                return resource.metadata()
+                                    .getSection(
+                                        net.minecraft.client.resources.metadata.animation.AnimationMetadataSection.SERIALIZER
+                                    );
+                            } catch (java.io.IOException exception) {
+                                return java.util.Optional.empty();
+                            }
+                        }).isPresent()
+                ) {
+                    stale.add(entry.getKey());
+                }
+            }
+
+            for (var location : stale) {
+                var texture = this.byPath.remove(location);
+
+                if (texture != null) {
+                    texture.close();
+                }
+            }
+        });
+    }
 }

@@ -43,6 +43,14 @@ public class AzBoneCache {
         return true;
     }
 
+    /** AzureLib 3.1.13 layering - counts bone-cache updates (frames); layered tracks compare against it. */
+    private long currentFrame;
+
+    /** @return the current bone-cache frame number */
+    public long currentFrame() {
+        return currentFrame;
+    }
+
     public void update(AzAnimationContext<?> context) {
         var config = context.config();
         var timer = context.timer();
@@ -58,6 +66,8 @@ public class AzBoneCache {
         }
 
         resetBoneTransformationMarkers();
+        // AzureLib 3.1.13 layering: a new frame for the write markers on each bone snapshot.
+        currentFrame++;
     }
 
     private void resetBoneTransformationMarkers() {

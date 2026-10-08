@@ -213,6 +213,16 @@ public final class BLibPerfProfiler {
         BLOCK_ENTITY_POSITIONS.computeIfAbsent(type, $ -> new java.util.HashSet<>()).add(packedPos);
     }
 
+    /**
+     * {@return one position of a block entity of this type that ticked, as BlockPos.asLong, or null} Used to point at
+     * block entities whose type has no registered name ("&lt;null&gt;"), so they can be found.
+     */
+    public static @Nullable Long blockEntitySamplePosition(String type) {
+        var positions = BLOCK_ENTITY_POSITIONS.get(type);
+
+        return positions == null || positions.isEmpty() ? null : positions.iterator().next();
+    }
+
     /** {@return a copy of the block entity table: type to [nanos, ticks, distinct block entities]} */
     public static Map<String, long[]> blockEntitySnapshot() {
         var copy = new HashMap<String, long[]>();
@@ -229,7 +239,7 @@ public final class BLibPerfProfiler {
     }
 
     /** Number of {@code UnifiedTerrainEvaluator.CacheDecision} values; the failed-search cap count sits after them. */
-    public static final int PATH_CACHE_DECISIONS = 7;
+    public static final int PATH_CACHE_DECISIONS = 8;
 
     /** Index of the "settings changed" decision - a kept cache thrown out once the search's settings were known. */
     private static final int SETTINGS_CHANGED = 6;
@@ -250,14 +260,17 @@ public final class BLibPerfProfiler {
         PATH_CACHE_COUNTS[decision]++;
     }
 
-    /** Oct 7 - a search first counted as reused turned out to need other settings: move it to SETTINGS_CHANGED. */
-    public static void recordPathCacheSettingsMismatch() {
+    /**
+     * Oct 7 - a search first counted as kept ({@code fromDecision}: reused or patched) turned out to need other
+     * settings: move it to SETTINGS_CHANGED.
+     */
+    public static void recordPathCacheSettingsMismatch(int fromDecision) {
         if (!active || !onServerThread()) {
             return;
         }
 
-        if (PATH_CACHE_COUNTS[0] > 0L) {
-            PATH_CACHE_COUNTS[0]--;
+        if (fromDecision >= 0 && fromDecision < PATH_CACHE_DECISIONS && PATH_CACHE_COUNTS[fromDecision] > 0L) {
+            PATH_CACHE_COUNTS[fromDecision]--;
         }
 
         PATH_CACHE_COUNTS[SETTINGS_CHANGED]++;
@@ -366,11 +379,11 @@ public final class BLibPerfProfiler {
     }
 
     /**
-     * The most report text the "[Copy full report]" button may carry. A click event travels inside the chat packet,
-     * and the packet's strings are written with a hard 65,535-byte limit - past it the SERVER fails to encode the
-     * packet and drops the player ("Failed to encode packet 'clientbound/minecraft:system_chat'", Oct 7 tester crash
-     * right as a 60 s run finished). Since #11 the report has no cut-offs, so a busy world's report is far past that.
-     * 20,000 characters leaves room for multi-byte characters and the rest of the message.
+     * The most report text the "[Copy full report]" button may carry. A click event travels inside the chat packet, and
+     * the packet's strings are written with a hard 65,535-byte limit - past it the SERVER fails to encode the packet
+     * and drops the player ("Failed to encode packet 'clientbound/minecraft:system_chat'", Oct 7 tester crash right as
+     * a 60 s run finished). Since #11 the report has no cut-offs, so a busy world's report is far past that. 20,000
+     * characters leaves room for multi-byte characters and the rest of the message.
      */
     private static final int MAX_CLIPBOARD_CHARS = 20_000;
 
