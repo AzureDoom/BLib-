@@ -78,7 +78,8 @@ dependencies {
     // GeckoLib, compile-only, for AzForeignArmor (armor from GeckoLib mods on Az entities). Referenced only inside a
     // class that is never loaded unless the geckolib mod is present; nothing is bundled. The NeoForge flavour is used
     // in every module for the same reason the Xaero jar above is: all three modules compile against mojang mappings.
-    compileOnly files("${rootProject.projectDir}/libs/geckolib-neoforge-1.21.1-4.9.3.jar")
+    // NO - USE MAVEN FOR THIS
+    compileOnly "maven.modrinth:8BmcQJ2H:Grwn5rUB"
 
     localRuntime "dev.architectury:architectury-neoforge:${project.architectury_version}"
     localRuntime "me.shedaniel.cloth:cloth-config-neoforge:${project.cloth_version}"
@@ -184,4 +185,4 @@ if (keyPropsFile.exists()) {
             announcementTitle = "Download from Modrinth"
         }
     }
-}
+}
