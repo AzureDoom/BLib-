@@ -1,16 +1,15 @@
 package com.blib.api.client.render.v1.lod;
 
+import com.blib.api.client.model.v1.AzBakedModel;
+import com.blib.api.client.model.v1.AzBone;
+import com.blib.api.client.profiling.v1.AzProfileStage;
+import com.blib.api.client.profiling.v1.AzProfiler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
-
-import com.blib.api.client.model.v1.AzBakedModel;
-import com.blib.api.client.model.v1.AzBone;
-import com.blib.api.client.profiling.v1.AzProfileStage;
-import com.blib.api.client.profiling.v1.AzProfiler;
 
 /**
  * Applies {@link AzLodConfig} rules to an entity each render frame.
@@ -20,8 +19,9 @@ import com.blib.api.client.profiling.v1.AzProfiler;
  * <ol>
  * <li>Compute camera distance squared (cheap, no sqrt).</li>
  * <li>Apply bone visibility based on hierarchy depth vs {@link AzLodConfig#boneLodDepth()}.</li>
- * <li>Return whether the animation system should run this frame based on
- * {@link AzLodConfig#animLodTickInterval()}.</li>
+ * <li>Return whether the animation system should run this frame based on {@link AzLodConfig#animLodTickInterval()}. The
+ * caller must actually skip the animator when this returns {@code false}; see
+ * {@code AzEntityRenderer#shouldAnimateThisFrame()}.</li>
  * </ol>
  * <p>
  * Bones that are shown/hidden by LOD will be restored to their natural hidden state on the next model reload. The LOD
@@ -33,21 +33,17 @@ public final class AzLodManager {
     private final AzLodConfig config;
 
     private static final Set<AzBakedModel> MODELS_WITH_LOD_HIDDEN_BONES = Collections.newSetFromMap(
-        new WeakHashMap<>()
+            new WeakHashMap<>()
     );
 
     /**
-     * Tracks the game tick at which we last ran a full animation update for this entity. Used to implement tick-rate
-     * reduction for animation LOD.
+     * Tracks the entity tick at which we last ran a full animation update for this entity. Used to implement tick-rate
+     * reduction for animation LOD. Starts far in the past so the first frame always animates.
      */
-    private int lastAnimTick = -1;
+    private int lastAnimTick = Integer.MIN_VALUE / 2;
 
     public AzLodManager(AzLodConfig config) {
         this.config = config;
-    }
-
-    public AzLodConfig config() {
-        return config;
     }
 
     /**
@@ -121,22 +117,28 @@ public final class AzLodManager {
     }
 
     /**
-     * Returns true if the animation system should run this frame. Past animLodDistance, animations only advance every N
-     * ticks.
+     * Returns true if the animation system should run this frame.
+     * <p>
+     * Within {@code animLodDistance}, every frame animates. Past it, exactly one frame animates once at least
+     * {@code animLodTickInterval} entity ticks have passed since the last update; every other frame reuses the last
+     * pose. Counting elapsed ticks (rather than {@code tickCount % interval}) means an entity can't miss its slot when
+     * the frame rate is below the tick rate, and update work is naturally spread across entities.
+     * </p>
      */
     private boolean shouldAnimate(Entity entity, double distSq) {
-        if (distSq <= config.animLodDistanceSq()) {
-            return true;
-        }
-
         var currentTick = entity.tickCount;
-        var interval = config.animLodTickInterval();
 
-        if (currentTick != lastAnimTick && (currentTick % interval) == 0) {
+        if (distSq <= config.animLodDistanceSq()) {
             lastAnimTick = currentTick;
             return true;
         }
 
-        return lastAnimTick == currentTick;
+        // currentTick < lastAnimTick: tickCount went backwards (entity reset); resync rather than freezing.
+        if (currentTick - lastAnimTick >= config.animLodTickInterval() || currentTick < lastAnimTick) {
+            lastAnimTick = currentTick;
+            return true;
+        }
+
+        return false;
     }
 }

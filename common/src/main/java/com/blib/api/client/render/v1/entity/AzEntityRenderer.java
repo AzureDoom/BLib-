@@ -39,6 +39,8 @@ public abstract class AzEntityRenderer<T extends Entity> extends EntityRenderer<
      */
     private final Map<T, AzLodManager> lodManagers = new WeakHashMap<>();
 
+    private boolean animateThisFrame = true;
+
     protected AzEntityRenderer(AzEntityRendererConfig<T> config, EntityRendererProvider.Context context) {
         super(context);
         this.config = config;
@@ -90,14 +92,7 @@ public abstract class AzEntityRenderer<T extends Entity> extends EntityRenderer<
         // Point the renderer's current animator reference to the cached entity animator before rendering.
         reusedAzEntityAnimator = cachedEntityAnimator;
 
-        // Apply bone LOD (no-op unless the config opted in).
-        var lodConfig = config.lodConfig();
-
-        // Only touch the entity's own model copy: before its animator exists, the provider hands back the shared
-        // template model, and hiding bones on that would hide them for every entity using the model.
-        if (lodConfig != AzLodConfig.DISABLED && azBakedModel != null && ownsModel(cachedEntityAnimator, azBakedModel)) {
-            lodManagers.computeIfAbsent(entity, $ -> new AzLodManager(lodConfig)).update(entity, azBakedModel);
-        }
+        animateThisFrame = updateLod(entity, cachedEntityAnimator, azBakedModel);
 
         // Execute the render pipeline.
         rendererPipeline.render(
@@ -111,6 +106,22 @@ public abstract class AzEntityRenderer<T extends Entity> extends EntityRenderer<
             partialTick,
             packedLight
         );
+    }
+
+    protected boolean updateLod(T entity, @Nullable AzEntityAnimator<T> animator, @Nullable AzBakedModel bakedModel) {
+        var lodConfig = config.lodConfig();
+
+        if (lodConfig == AzLodConfig.DISABLED || bakedModel == null || animator == null) {
+            return true;
+        }
+
+        var context = animator.context();
+
+        if (context == null || context.boneCache().isEmpty() || context.boneCache().getBakedModel() != bakedModel) {
+            return true;
+        }
+
+        return lodManagers.computeIfAbsent(entity, ignored -> new AzLodManager(lodConfig)).update(entity, bakedModel);
     }
 
     @Override
@@ -131,6 +142,14 @@ public abstract class AzEntityRenderer<T extends Entity> extends EntityRenderer<
 
     public AzEntityAnimator<T> getAnimator() {
         return reusedAzEntityAnimator;
+    }
+
+    /**
+     * Whether the animator should run for the entity currently being rendered. {@code false} when animation LOD is
+     * holding the entity's last pose this frame.
+     */
+    public boolean shouldAnimateThisFrame() {
+        return animateThisFrame;
     }
 
     public AzEntityRendererConfig<T> config() {

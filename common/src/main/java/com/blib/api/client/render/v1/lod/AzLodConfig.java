@@ -1,7 +1,7 @@
 package com.blib.api.client.render.v1.lod;
 
 /**
- * Configures distance-based LOD thresholds for BLib entity rendering.
+ * Configures distance-based LOD thresholds for AzureLib entity rendering.
  * <p>
  * Two independent LOD systems are controlled here:
  * </p>
@@ -10,33 +10,32 @@ package com.blib.api.client.render.v1.lod;
  * their children, etc. Bones deeper than {@code boneLodDepth} are hidden when the entity is further than
  * {@code boneLodDistance} blocks from the camera.</li>
  * <li><b>Animation LOD</b> — reduces animation update frequency past a distance. Beyond {@code animLodDistance},
- * animations only update every {@code animLodTickInterval} ticks instead of every frame.</li>
+ * animations update once every {@code animLodTickInterval} ticks instead of every frame; frames in between reuse the
+ * last pose.</li>
  * </ul>
- * <p>
- * Entity renderers use {@link #DISABLED} unless configured otherwise via
- * {@code AzEntityRendererConfig.Builder#withLodConfig}. {@link #DEFAULT} is a reasonable starting point to opt in with.
- * </p>
- * <p>
- * <b>Note:</b> animation LOD is not applied by the built-in entity renderer yet. Animated bones live on a per-entity
- * model copy that is re-posed every frame, so skipping an update needs a cached pose to fall back to; until that
- * exists only bone LOD has a visible effect. The value is exposed so custom renderers can act on
- * {@code AzLodManager#update}'s result.
- * </p>
  */
 public final class AzLodConfig {
 
     public static final AzLodConfig DISABLED = new AzLodConfig(
-        Double.MAX_VALUE,
-        Integer.MAX_VALUE,
-        Double.MAX_VALUE,
-        1
+            Double.MAX_VALUE,
+            Integer.MAX_VALUE,
+            Double.MAX_VALUE,
+            1
     );
 
-    /** A suggested opt-in configuration: bone LOD past 40 blocks (depth 3), animation LOD past 48 blocks. */
+    /**
+     * A built-in LOD preset: past 40 blocks, bones deeper than depth 3 are hidden; past 48 blocks, animations update
+     * once every 2 ticks.
+     * <p>
+     * Not applied automatically. Renderers use {@link #DISABLED} unless you opt in with
+     * {@code AzEntityRendererConfig.Builder#withLodConfig(AzLodConfig.DEFAULT)}, or with your own config from
+     * {@link #builder()}.
+     * </p>
+     */
     public static final AzLodConfig DEFAULT = builder()
-        .boneLod(40, 3)
-        .animLod(48, 2)
-        .build();
+            .boneLod(40, 3)
+            .animLod(48, 2)
+            .build();
 
     private final double boneLodDistanceSq;
 
@@ -47,10 +46,10 @@ public final class AzLodConfig {
     private final int animLodTickInterval;
 
     private AzLodConfig(
-        double boneLodDistanceSq,
-        int boneLodDepth,
-        double animLodDistanceSq,
-        int animLodTickInterval
+            double boneLodDistanceSq,
+            int boneLodDepth,
+            double animLodDistanceSq,
+            int animLodTickInterval
     ) {
         this.boneLodDistanceSq = boneLodDistanceSq;
         this.boneLodDepth = boneLodDepth;
@@ -111,8 +110,9 @@ public final class AzLodConfig {
          * Beyond {@code distance} blocks, reduce animation updates to once every {@code tickInterval} ticks.
          * <p>
          * Example: {@code animLod(32, 3)} — past 32 blocks, animate at ~7 fps (20/3) instead of per-frame. The entity
-         * still moves and the pose interpolates, but the animation track only advances every 3 ticks, saving most
-         * of the per-bone CPU work.
+         * still moves smoothly, but its pose only updates every 3 ticks and holds in between, saving most of the
+         * per-bone CPU work. Animation time keeps advancing, so each update lands on the correct point of the
+         * animation.
          * </p>
          *
          * @param distance     Distance in blocks at which animation LOD activates
@@ -126,10 +126,10 @@ public final class AzLodConfig {
 
         public AzLodConfig build() {
             return new AzLodConfig(
-                boneLodDistance * boneLodDistance,
-                boneLodDepth,
-                animLodDistance * animLodDistance,
-                animLodTickInterval
+                    boneLodDistance * boneLodDistance,
+                    boneLodDepth,
+                    animLodDistance * animLodDistance,
+                    animLodTickInterval
             );
         }
     }
