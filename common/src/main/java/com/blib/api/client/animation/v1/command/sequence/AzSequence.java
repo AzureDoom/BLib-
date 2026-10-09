@@ -320,11 +320,6 @@ public final class AzSequence {
             return then(animationName, AzPlayBehaviors.HOLD_ON_LAST_FRAME);
         }
 
-        /**
-         * @param name the event's name
-         * @param tick ticks from the start of the sequence
-         * @return this builder
-         */
         public Builder authored(String animationName) {
             return then(animationName, AzPlayBehaviors.AS_AUTHORED);
         }
