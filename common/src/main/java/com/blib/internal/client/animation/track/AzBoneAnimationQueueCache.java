@@ -1,6 +1,8 @@
 package com.blib.internal.client.animation.track;
 
+import com.blib.api.client.animation.v1.track.AzBlendMode;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
@@ -8,45 +10,98 @@ import java.util.Map;
 
 import com.blib.internal.client.animation.AzBoneAnimationUpdateUtil;
 import com.blib.internal.client.animation.cache.AzBoneCache;
-import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.track.keyframe.AzBoneAnimationQueue;
+import com.blib.internal.client.animation.easing.AzEasingType;
+import com.blib.internal.client.animation.primitive.AzBakedAnimation;
+import com.blib.api.client.model.v1.AzBakedModel;
 
+/**
+ * The AzBoneAnimationQueueCache class is responsible for managing and updating animation queues for bones. It acts as a
+ * cache that maps bone names to their respective animation queues, enabling efficient updates and access.
+ *
+ * @param <T> the type of the animatable object used in the animation context
+ */
+@SuppressWarnings("unused")
 public class AzBoneAnimationQueueCache<T> {
+
+    private static final AzBoneAnimationQueue[] NO_QUEUES = new AzBoneAnimationQueue[0];
 
     private final Map<String, AzBoneAnimationQueue> boneAnimationQueues;
 
+    /** The same queues as {@link #boneAnimationQueues}, for per-frame loops without a map iterator. */
+    private final ObjectArrayList<AzBoneAnimationQueue> queueList = new ObjectArrayList<>();
+
     private final AzBoneCache boneCache;
+
+    @Nullable
+    private AzBakedAnimation resolvedAnimation;
+
+    @Nullable
+    private AzBakedModel resolvedModel;
+
+    private AzBoneAnimationQueue[] resolvedQueues = NO_QUEUES;
 
     public AzBoneAnimationQueueCache(AzBoneCache boneCache) {
         this.boneAnimationQueues = new Object2ObjectOpenHashMap<>();
         this.boneCache = boneCache;
     }
 
+    /**
+     * Updates the animations of all bones in the cache by applying transformations such as rotation, position, and
+     * scale based on the specified easing type. The method retrieves current bone snapshots and initial snapshots to
+     * calculate the updated transformations for each bone animation queue.
+     *
+     * @param easingType the easing type used for calculating the interpolation of transformations such as rotation,
+     *                   position, and scale
+     */
     public void update(AzEasingType easingType) {
-        update(easingType, 1, com.blib.api.client.animation.v1.track.AzBlendMode.OVERRIDE);
+        update(easingType, 1, AzBlendMode.OVERRIDE);
     }
 
-    /** AzureLib 3.1.13 layering - applies this frame's keyframes at the track's weight and blend mode. */
-    public void update(
-        AzEasingType easingType,
-        double weight,
-        com.blib.api.client.animation.v1.track.AzBlendMode blendMode
-    ) {
+    /**
+     * Applies this frame's values to the bones, combined with what is already there by {@code blendMode} and
+     * {@code weight}. See {@link AzBoneAnimationUpdateUtil} for how tracks layer.
+     */
+    public void update(AzEasingType easingType, double weight, AzBlendMode blendMode) {
+        var boneSnapshots = boneCache.getBoneSnapshotsByName();
         var frame = boneCache.currentFrame();
 
-        var boneSnapshots = boneCache.getBoneSnapshotsByName();
-
-        for (var boneAnimation : boneAnimationQueues.values()) {
+        for (int i = 0, size = queueList.size(); i < size; i++) {
+            var boneAnimation = queueList.get(i);
             var bone = boneAnimation.bone();
             var snapshot = boneSnapshots.get(bone.getName());
             var initialSnapshot = bone.getInitialAzSnapshot();
 
-            AzBoneAnimationUpdateUtil
-                .updateRotations(boneAnimation, bone, easingType, initialSnapshot, snapshot, weight, blendMode, frame);
-            AzBoneAnimationUpdateUtil
-                .updatePositions(boneAnimation, bone, easingType, initialSnapshot, snapshot, weight, blendMode, frame);
-            AzBoneAnimationUpdateUtil
-                .updateScale(boneAnimation, bone, easingType, initialSnapshot, snapshot, weight, blendMode, frame);
+            AzBoneAnimationUpdateUtil.updateRotations(
+                boneAnimation,
+                bone,
+                easingType,
+                initialSnapshot,
+                snapshot,
+                weight,
+                blendMode,
+                frame
+            );
+            AzBoneAnimationUpdateUtil.updatePositions(
+                boneAnimation,
+                bone,
+                easingType,
+                initialSnapshot,
+                snapshot,
+                weight,
+                blendMode,
+                frame
+            );
+            AzBoneAnimationUpdateUtil.updateScale(
+                boneAnimation,
+                bone,
+                easingType,
+                initialSnapshot,
+                snapshot,
+                weight,
+                blendMode,
+                frame
+            );
         }
     }
 
@@ -54,6 +109,13 @@ public class AzBoneAnimationQueueCache<T> {
         return boneAnimationQueues.values();
     }
 
+    /**
+     * Retrieves the animation queue for the specified bone name or returns null if the bone does not exist.
+     *
+     * @param boneName the name of the bone for which the animation queue is to be retrieved
+     * @return the {@code AzBoneAnimationQueue} associated with the specified bone name, or {@code null} if the bone
+     *         does not exist
+     */
     public @Nullable AzBoneAnimationQueue getOrNull(String boneName) {
         var bone = boneCache.getBakedModel().getBoneOrNull(boneName);
 
@@ -61,10 +123,60 @@ public class AzBoneAnimationQueueCache<T> {
             return null;
         }
 
-        return boneAnimationQueues.computeIfAbsent(boneName, $ -> new AzBoneAnimationQueue(bone));
+        var queue = boneAnimationQueues.get(boneName);
+
+        if (queue == null) {
+            queue = new AzBoneAnimationQueue(bone);
+            boneAnimationQueues.put(boneName, queue);
+            queueList.add(queue);
+        }
+
+        return queue;
+    }
+
+    /**
+     * Clears all the animation queues stored in the cache. This method removes all mappings of bone names to their
+     * respective {@code AzBoneAnimationQueue} objects, effectively resetting the cache to an empty state.
+     */
+    public void prepareFrame() {
+        for (int i = 0, size = queueList.size(); i < size; i++) {
+            queueList.get(i).clearFrame();
+        }
+    }
+
+    /**
+     * Returns the animation queue for each of {@code animation}'s bone animations, by the same index as
+     * {@link AzBakedAnimation#boneAnimations()}, with {@code null} for bones the current model doesn't have.
+     * <p>
+     * Resolving by name costs two hash lookups per bone, so the result is cached and reused for as long as the same
+     * animation plays on the same baked model. Only a different animation, a model change or {@link #clear()} resolves
+     * again. The returned array is shared; don't modify it.
+     * </p>
+     */
+    public AzBoneAnimationQueue[] resolveQueues(AzBakedAnimation animation) {
+        var model = boneCache.getBakedModel();
+
+        if (animation != resolvedAnimation || model != resolvedModel) {
+            var boneAnimations = animation.boneAnimations();
+            var queues = new AzBoneAnimationQueue[boneAnimations.length];
+
+            for (var i = 0; i < boneAnimations.length; i++) {
+                queues[i] = getOrNull(boneAnimations[i].boneName());
+            }
+
+            resolvedQueues = queues;
+            resolvedAnimation = animation;
+            resolvedModel = model;
+        }
+
+        return resolvedQueues;
     }
 
     public void clear() {
         boneAnimationQueues.clear();
+        queueList.clear();
+        resolvedAnimation = null;
+        resolvedModel = null;
+        resolvedQueues = NO_QUEUES;
     }
 }

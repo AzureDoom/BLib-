@@ -8,6 +8,8 @@ import net.minecraft.world.entity.LivingEntity;
 import java.util.UUID;
 import java.util.function.DoubleSupplier;
 
+import com.blib.internal.client.animation.molang.AzEntityMolangQueries;
+import com.blib.internal.client.animation.molang.AzMolangQueryContext;
 import com.blib.internal.client.render.util.RenderUtil;
 import com.blib.internal.common.molang.MolangQueries;
 import com.blib.internal.common.molang.MolangVariableRef;
@@ -21,7 +23,7 @@ import com.blib.internal.common.molang.MolangVariableRef;
  * @param <T> The type of entity this animator is designed to manage.
  */
 /*
- * AzureLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame
+ * BLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame
  * garbage.
  */
 public abstract class AzEntityAnimator<T extends Entity> extends AzAnimator<UUID, T> {
@@ -197,5 +199,9 @@ public abstract class AzEntityAnimator<T extends Entity> extends AzAnimator<UUID
         IS_BABY_REF.set(isBabySupplier);
         LIMB_SWING_REF.set(limbSwingSupplier);
         LIMB_SWING_AMOUNT_REF.set(limbSwingAmountSupplier);
+
+        // Context for the entity query functions (q.position, q.is_item_equipped, ...) and the entity-only queries.
+        AzMolangQueryContext.INSTANCE.bind(entity, partialTicks);
+        AzEntityMolangQueries.bind();
     }
 }

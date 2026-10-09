@@ -44,9 +44,9 @@ public class AzRendererConfig<K, T> {
 
     private final Function<T, Float> scaleWidth;
 
-    private final @Nullable Function<AzBone, ResourceLocation> boneTextureOverrideProvider;
+    private final BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider;
 
-    private final @Nullable Function<AzBone, RenderType> boneRenderTypeOverrideProvider;
+    private final BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider;
 
     private final @Nullable BoneVisibilityFilter<T> boneVisibilityFilter;
 
@@ -64,8 +64,8 @@ public class AzRendererConfig<K, T> {
         Function<T, Float> alphaFunction,
         Function<T, Float> scaleHeight,
         Function<T, Float> scaleWidth,
-        Function<AzBone, ResourceLocation> boneTextureOverrideProvider,
-        Function<AzBone, RenderType> boneRenderTypeOverrideProvider,
+        BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider,
+        BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider,
         @Nullable BoneVisibilityFilter<T> boneVisibilityFilter
     ) {
         this.animatorProvider = animatorProvider;
@@ -153,12 +153,34 @@ public class AzRendererConfig<K, T> {
         return scaleWidth.apply(entity);
     }
 
+    /**
+     * The texture override for {@code bone}, with no animatable available. Prefer
+     * {@link #boneTextureOverrideProvider(Object, AzBone)} where you have one.
+     */
     public @Nullable ResourceLocation boneTextureOverrideProvider(AzBone bone) {
-        return boneTextureOverrideProvider.apply(bone);
+        return boneTextureOverrideProvider(null, bone);
     }
 
+    /**
+     * The texture override for {@code bone} when rendering {@code animatable}, or {@code null} for none.
+     */
+    public @Nullable ResourceLocation boneTextureOverrideProvider(@Nullable T animatable, AzBone bone) {
+        return boneTextureOverrideProvider.apply(animatable, bone);
+    }
+
+    /**
+     * The render type override for {@code bone}, with no animatable available. Prefer
+     * {@link #boneRenderTypeOverrideProvider(Object, AzBone)} where you have one.
+     */
     public @Nullable RenderType boneRenderTypeOverrideProvider(AzBone bone) {
-        return boneRenderTypeOverrideProvider.apply(bone);
+        return boneRenderTypeOverrideProvider(null, bone);
+    }
+
+    /**
+     * The render type override for {@code bone} when rendering {@code animatable}, or {@code null} for none.
+     */
+    public @Nullable RenderType boneRenderTypeOverrideProvider(@Nullable T animatable, AzBone bone) {
+        return boneRenderTypeOverrideProvider.apply(animatable, bone);
     }
 
     public @Nullable BoneVisibilityFilter<T> boneVisibilityFilter() {
@@ -193,9 +215,9 @@ public class AzRendererConfig<K, T> {
 
         protected Function<T, Float> scaleWidth;
 
-        private @Nullable Function<AzBone, ResourceLocation> boneTextureOverrideProvider;
+        private BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider;
 
-        private @Nullable Function<AzBone, RenderType> boneRenderTypeOverrideProvider;
+        private BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider;
 
         private @Nullable BoneVisibilityFilter<T> boneVisibilityFilter;
 
@@ -216,13 +238,24 @@ public class AzRendererConfig<K, T> {
             this.alphaFunction = $ -> 1.0F;
             this.scaleHeight = $ -> 1.0F;
             this.scaleWidth = $ -> 1.0F;
-            this.boneTextureOverrideProvider = $ -> null;
-            this.boneRenderTypeOverrideProvider = $ -> null;
+            this.boneTextureOverrideProvider = (animatable, bone) -> null;
+            this.boneRenderTypeOverrideProvider = (animatable, bone) -> null;
             this.boneVisibilityFilter = null;
         }
 
         public Builder<K, T> setBoneTextureOverrideProvider(
             Function<AzBone, ResourceLocation> boneTextureOverrideProvider
+        ) {
+            this.boneTextureOverrideProvider = (animatable, bone) -> boneTextureOverrideProvider.apply(bone);
+            return this;
+        }
+
+        /**
+         * Sets a per-bone texture override that can vary by animatable (e.g. a variant texture for one bone). The
+         * animatable is {@code null} when the override is queried outside a render pass.
+         */
+        public Builder<K, T> setBoneTextureOverrideProvider(
+            BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider
         ) {
             this.boneTextureOverrideProvider = boneTextureOverrideProvider;
             return this;
@@ -230,6 +263,17 @@ public class AzRendererConfig<K, T> {
 
         public Builder<K, T> setBoneRenderTypeOverrideProvider(
             Function<AzBone, RenderType> boneRenderTypeOverrideProvider
+        ) {
+            this.boneRenderTypeOverrideProvider = (animatable, bone) -> boneRenderTypeOverrideProvider.apply(bone);
+            return this;
+        }
+
+        /**
+         * Sets a per-bone render type override that can vary by animatable. The animatable is {@code null} when the
+         * override is queried outside a render pass.
+         */
+        public Builder<K, T> setBoneRenderTypeOverrideProvider(
+            BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider
         ) {
             this.boneRenderTypeOverrideProvider = boneRenderTypeOverrideProvider;
             return this;

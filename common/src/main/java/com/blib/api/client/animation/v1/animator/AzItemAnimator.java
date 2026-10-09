@@ -15,11 +15,11 @@ import com.blib.internal.common.molang.MolangVariableRef;
  * within the framework. <br/>
  * <br/>
  * This class serves as a base for developing custom item animator implementations. Subclasses are required to implement
- * methods for animation controller registration and for specifying the animation location for the corresponding
+ * methods for animation track registration and for specifying the animation location for the corresponding
  * {@code ItemStack}.
  */
 /*
- * AzureLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame
+ * BLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame
  * garbage. Also fixes query.item_is_enchanted (was inverted: 1 for an unenchanted item) and
  * query.item_current_durability (NaN for an item that cannot take damage; now 0).
  */
@@ -31,6 +31,12 @@ public abstract class AzItemAnimator extends AzAnimator<UUID, ItemStack> {
 
     private static final MolangVariableRef ITEM_IS_ENCHANTED_REF = new MolangVariableRef(
         MolangQueries.ITEM_IS_ENCHANTED
+    );
+
+    private static final MolangVariableRef MAX_DURABILITY_REF = new MolangVariableRef(MolangQueries.MAX_DURABILITY);
+
+    private static final MolangVariableRef REMAINING_DURABILITY_REF = new MolangVariableRef(
+        MolangQueries.REMAINING_DURABILITY
     );
 
     /*
@@ -48,6 +54,13 @@ public abstract class AzItemAnimator extends AzAnimator<UUID, ItemStack> {
 
     private final DoubleSupplier isEnchantedSupplier = () -> RenderUtil.booleanToFloat(currentStack.isEnchanted());
 
+    private final DoubleSupplier maxDurabilitySupplier = () -> currentStack.getMaxDamage();
+
+    private final DoubleSupplier remainingDurabilitySupplier = () -> {
+        int maxDamage = currentStack.getMaxDamage();
+        return maxDamage <= 0 ? 0 : maxDamage - currentStack.getDamageValue();
+    };
+
     protected AzItemAnimator() {
         super();
     }
@@ -64,5 +77,7 @@ public abstract class AzItemAnimator extends AzAnimator<UUID, ItemStack> {
 
         ITEM_CURRENT_DURABILITY_REF.setMemoized(currentDurabilitySupplier);
         ITEM_IS_ENCHANTED_REF.setMemoized(isEnchantedSupplier);
+        MAX_DURABILITY_REF.setMemoized(maxDurabilitySupplier);
+        REMAINING_DURABILITY_REF.setMemoized(remainingDurabilitySupplier);
     }
 }

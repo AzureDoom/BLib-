@@ -40,8 +40,8 @@ public class AzBlockEntityRendererConfig<T extends BlockEntity> extends AzRender
         Function<T, Float> scaleWidth,
         BiFunction<AzRendererPipeline<Long, T>, AzLayerRenderer<Long, T>, AzModelRenderer<Long, T>> modelRendererProvider,
         Function<AzRendererPipeline<Long, T>, AzRendererPipelineContext<Long, T>> pipelineContextFunction,
-        Function<AzBone, ResourceLocation> boneTextureOverrideProvider,
-        Function<AzBone, RenderType> boneRenderTypeOverrideProvider,
+        BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider,
+        BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider,
         BoneVisibilityFilter<T> boneVisibilityFilter
     ) {
         super(
@@ -101,8 +101,22 @@ public class AzBlockEntityRendererConfig<T extends BlockEntity> extends AzRender
         }
 
         @Override
+        public Builder<T> setBoneRenderTypeOverrideProvider(
+            BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider
+        ) {
+            return (Builder<T>) super.setBoneRenderTypeOverrideProvider(boneRenderTypeOverrideProvider);
+        }
+
+        @Override
         public Builder<T> setBoneTextureOverrideProvider(
             Function<AzBone, ResourceLocation> boneTextureOverrideProvider
+        ) {
+            return (Builder<T>) super.setBoneTextureOverrideProvider(boneTextureOverrideProvider);
+        }
+
+        @Override
+        public Builder<T> setBoneTextureOverrideProvider(
+            BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider
         ) {
             return (Builder<T>) super.setBoneTextureOverrideProvider(boneTextureOverrideProvider);
         }

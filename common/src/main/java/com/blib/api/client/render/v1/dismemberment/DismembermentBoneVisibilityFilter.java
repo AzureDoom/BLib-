@@ -45,11 +45,15 @@ public final class DismembermentBoneVisibilityFilter<T extends LivingEntity> imp
             return false;
         }
 
-        var detached = dismemberable.getDismembermentManager().getDetachedLimbIds();
+        var manager = dismemberable.getDismembermentManager();
 
-        if (detached.isEmpty()) {
+        // Runs for every bone of every Dismemberable entity each frame; the common case (nothing detached) must not
+        // allocate or iterate.
+        if (!manager.hasAnyDetached()) {
             return false;
         }
+
+        var detached = manager.getDetachedLimbIds();
 
         var boneName = bone.getName();
         var sourceType = living.getType();

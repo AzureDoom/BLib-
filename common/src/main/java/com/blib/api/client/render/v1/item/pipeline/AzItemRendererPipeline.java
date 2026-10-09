@@ -49,7 +49,7 @@ public class AzItemRendererPipeline extends AzRendererPipeline<UUID, ItemStack> 
     public void preRender(AzRendererPipelineContext<UUID, ItemStack> context, boolean isReRender) {
         var itemContext = (AzItemRendererPipelineContext) context;
         var poseStack = itemContext.poseStack();
-        this.itemRenderTranslations = new Matrix4f(poseStack.last().pose());
+        this.itemRenderTranslations.set(poseStack.last().pose());
 
         var config = itemRenderer.config();
         var scaleWidth = config.scaleWidth(context.animatable());

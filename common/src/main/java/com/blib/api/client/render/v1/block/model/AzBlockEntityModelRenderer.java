@@ -8,7 +8,6 @@ import net.minecraft.world.level.block.DirectionalBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 
@@ -22,6 +21,12 @@ import com.blib.internal.client.render.util.RenderUtil;
 public class AzBlockEntityModelRenderer<T extends BlockEntity> extends AzModelRenderer<Long, T> {
 
     protected final AzBlockEntityRendererPipeline<T> blockEntityRendererPipeline;
+
+    private final Matrix4f scratchPoseState = new Matrix4f();
+
+    private final Matrix4f scratchMatrix = new Matrix4f();
+
+    private final Vector3f scratchVector = new Vector3f();
 
     public AzBlockEntityModelRenderer(
         AzBlockEntityRendererPipeline<T> blockEntityRendererPipeline,
@@ -37,9 +42,11 @@ public class AzBlockEntityModelRenderer<T extends BlockEntity> extends AzModelRe
         var poseStack = context.poseStack();
 
         if (!isReRender) {
-
             poseStack.translate(0.5, 0, 0.5);
             rotateBlock(getFacing(entity), poseStack);
+        }
+
+        if (!isReRender || context.applyAnimationOnReRender()) {
             var animator = blockEntityRendererPipeline.getRenderer().getAnimator();
 
             if (animator != null) {
@@ -47,7 +54,7 @@ public class AzBlockEntityModelRenderer<T extends BlockEntity> extends AzModelRe
             }
         }
 
-        blockEntityRendererPipeline.setModelRenderTranslations(new Matrix4f(poseStack.last().pose()));
+        blockEntityRendererPipeline.getModelRenderTranslations().set(poseStack.last().pose());
 
         var textureLocation = blockEntityRendererPipeline.config().textureLocation(context.currentEntity(), entity);
         RenderSystem.setShaderTexture(0, textureLocation);
@@ -56,9 +63,7 @@ public class AzBlockEntityModelRenderer<T extends BlockEntity> extends AzModelRe
 
     @Override
     public void renderRecursively(AzRendererPipelineContext<Long, T> context, AzBone bone, boolean isReRender) {
-        var visibilityFilter = blockEntityRendererPipeline.config().boneVisibilityFilter();
-
-        if (visibilityFilter != null && visibilityFilter.shouldHideBone(bone, context.animatable())) {
+        if (isBoneFiltered(context, bone)) {
             return;
         }
 
@@ -67,62 +72,67 @@ public class AzBlockEntityModelRenderer<T extends BlockEntity> extends AzModelRe
         var entity = context.animatable();
         var poseStack = context.poseStack();
 
-        poseStack.pushPose();
-        RenderUtil.translateMatrixToBone(poseStack, bone);
-        RenderUtil.translateToPivotPoint(poseStack, bone);
-        RenderUtil.rotateMatrixAroundBone(poseStack, bone);
-        RenderUtil.scaleMatrixForBone(poseStack, bone);
+        var slot = saveBonePose(poseStack);
 
-        if (bone.isTrackingMatrices()) {
-            Matrix4f poseState = new Matrix4f(poseStack.last().pose());
-            Matrix4f localMatrix = RenderUtil.invertAndMultiplyMatrices(
-                poseState,
-                blockEntityRendererPipeline.getEntityRenderTranslations()
-            );
+        try {
+            RenderUtil.translateMatrixToBone(poseStack, bone);
+            RenderUtil.translateToPivotPoint(poseStack, bone);
+            RenderUtil.rotateMatrixAroundBone(poseStack, bone);
+            RenderUtil.scaleMatrixForBone(poseStack, bone);
 
-            bone.setModelSpaceMatrix(
-                RenderUtil.invertAndMultiplyMatrices(poseState, blockEntityRendererPipeline.getModelRenderTranslations())
-            );
-            bone.setLocalSpaceMatrix(
-                RenderUtil.translateMatrix(localMatrix, Vec3.ZERO.toVector3f())
-            );
-            bone.setWorldSpaceMatrix(
-                RenderUtil.translateMatrix(
-                    new Matrix4f(localMatrix),
-                    new Vector3f(
-                        entity.getBlockPos().getX(),
-                        entity.getBlockPos().getY(),
-                        entity.getBlockPos().getZ()
+            if (bone.isTrackingMatrices()) {
+                var poseState = scratchPoseState.set(poseStack.last().pose());
+
+                bone.setModelSpaceMatrix(
+                    RenderUtil.invertAndMultiplyMatrices(
+                        poseState,
+                        blockEntityRendererPipeline.getModelRenderTranslations(),
+                        scratchMatrix
                     )
+                );
+
+                var localMatrix = RenderUtil.invertAndMultiplyMatrices(
+                    poseState,
+                    blockEntityRendererPipeline.getEntityRenderTranslations(),
+                    scratchMatrix
+                );
+                var blockPos = entity.getBlockPos();
+
+                bone.setLocalSpaceMatrix(localMatrix);
+                bone.setWorldSpaceMatrix(
+                    RenderUtil.translateMatrixInPlace(
+                        localMatrix,
+                        scratchVector.set(blockPos.getX(), blockPos.getY(), blockPos.getZ())
+                    )
+                );
+            }
+
+            RenderUtil.translateAwayFromPivotPoint(poseStack, bone);
+
+            context.setVertexConsumer(getOrRefreshRenderBuffer(isReRender, context, bone));
+
+            if (
+                !boneRenderOverride(
+                    poseStack,
+                    bone,
+                    bufferSource,
+                    buffer,
+                    context.partialTick(),
+                    context.packedLight(),
+                    context.packedOverlay(),
+                    context.renderColor()
                 )
-            );
-        }
-
-        RenderUtil.translateAwayFromPivotPoint(poseStack, bone);
-
-        context.setVertexConsumer(getOrRefreshRenderBuffer(isReRender, context, bone));
-
-        if (
-            !boneRenderOverride(
-                poseStack,
-                bone,
-                bufferSource,
-                buffer,
-                context.partialTick(),
-                context.packedLight(),
-                context.packedOverlay(),
-                context.renderColor()
             )
-        )
-            super.renderCubesOfBone(context, bone);
+                super.renderCubesOfBone(context, bone);
 
-        if (!isReRender) {
-            layerRenderer.applyRenderLayersForBone(context, bone);
+            if (!isReRender) {
+                layerRenderer.applyRenderLayersForBone(context, bone);
+            }
+
+            renderChildBones(context, bone, isReRender);
+        } finally {
+            restoreBonePose(poseStack, slot);
         }
-
-        renderChildBones(context, bone, isReRender);
-
-        poseStack.popPose();
     }
 
     protected Direction getFacing(T block) {

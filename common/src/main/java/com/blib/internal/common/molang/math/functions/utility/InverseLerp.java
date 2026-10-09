@@ -3,6 +3,10 @@ package com.blib.internal.common.molang.math.functions.utility;
 import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.math.functions.Function;
 
+/**
+ * Inverse lerp function Returns the interpolation factor (0 to 1) that would produce the given value between start and
+ * end
+ */
 public class InverseLerp extends Function {
 
     public InverseLerp(IValue[] values, String name) throws Exception {

@@ -1,9 +1,7 @@
 package com.blib.internal.client.model;
 
 import com.just.core.functional.result.Err;
-import com.just.core.functional.result.Ok;
 import com.just.core.functional.result.Result;
-import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.jetbrains.annotations.Nullable;
@@ -24,6 +22,11 @@ import com.blib.internal.common.io.ResourceFileLoader;
 import com.blib.internal.common.io.util.JsonUtil;
 import com.blib.mod.BLib;
 
+/**
+ * Caches baked geo models. Models are loaded and baked into a fresh map on the background executor, then published with
+ * {@link #apply(Map)} on the game thread after the reload's preparation barrier, so readers never see a partially
+ * loaded map.
+ */
 public class AzBakedModelCache extends AzResourceCache {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AzBakedModelCache.class);
@@ -40,28 +43,65 @@ public class AzBakedModelCache extends AzResourceCache {
         return INSTANCE;
     }
 
-    private final Map<ResourceLocation, AzBakedModel> bakedModels;
+    private volatile Map<ResourceLocation, AzBakedModel> bakedModels = Map.of();
 
-    private AzBakedModelCache() {
-        this.bakedModels = new Object2ObjectOpenHashMap<>();
+    /**
+     * The default model baked by the most recent {@link #loadModels} call, published as the global default in
+     * {@link #apply(Map)}. Written on the background executor; the reload future's completion makes it visible to the
+     * game thread that calls {@code apply}.
+     */
+    private @Nullable AzBakedModel pendingDefaultModel;
+
+    private AzBakedModelCache() {}
+
+    /**
+     * Loads and bakes every geo file into a new map without touching the live cache or the global default model.
+     * Publish the result with {@link #apply(Map)} on the game thread.
+     * <p>
+     * A model that fails to load falls back to the default model when that loaded; otherwise it is left out of the map.
+     * </p>
+     */
+    public CompletableFuture<Map<ResourceLocation, AzBakedModel>> loadModels(
+            Executor backgroundExecutor,
+            ResourceManager resourceManager
+    ) {
+        return CompletableFuture.supplyAsync(() -> loadDefaultBakedModel(resourceManager), backgroundExecutor)
+                .thenCompose(defaultBakedModelResult -> {
+                    pendingDefaultModel = defaultBakedModelResult.isOk() ? defaultBakedModelResult.unwrap() : null;
+
+                    return loadResources(
+                            backgroundExecutor,
+                            resourceManager,
+                            MODELS_PATH,
+                            resourceLocation -> {
+                                // The default model is published through AzBakedModel.setDefault, not looked up by id.
+                                if (Objects.equals(DEFAULT_MODEL_RESOURCE_LOCATION, resourceLocation)) {
+                                    return null;
+                                }
+
+                                var result = loadAndBakeModel(resourceManager, resourceLocation, defaultBakedModelResult);
+
+                                // Errors were already logged; null leaves the model out of the map.
+                                return result.isOk() ? result.unwrap() : null;
+                            }
+                    );
+                });
     }
 
-    public CompletableFuture<Void> loadModels(Executor backgroundExecutor, ResourceManager resourceManager) {
-        var defaultBakedModelOption = loadDefaultBakedModel(resourceManager);
+    /**
+     * Replaces the live cache with a freshly loaded one and publishes the default model baked alongside it. Entries from
+     * resources that no longer exist are dropped. Call on the game thread.
+     */
+    public void apply(Map<ResourceLocation, AzBakedModel> models) {
+        var defaultModel = pendingDefaultModel;
+        pendingDefaultModel = null;
 
-        return loadResources(
-            backgroundExecutor,
-            resourceManager,
-            MODELS_PATH,
-            resourceLocation -> {
-                if (Objects.equals(DEFAULT_MODEL_RESOURCE_LOCATION, resourceLocation)) {
-                    return Result.err(null);
-                }
+        // TODO: This is semantically misleading at best and brittle at worst. "Defaults" should never change.
+        if (defaultModel != null) {
+            AzBakedModel.setDefault(defaultModel);
+        }
 
-                return loadAndBakeModel(resourceManager, resourceLocation, defaultBakedModelOption);
-            },
-            this::tryInsertBakedModelResult
-        );
+        this.bakedModels = models;
     }
 
     public @Nullable AzBakedModel getOrNull(ResourceLocation resourceLocation) {
@@ -79,40 +119,30 @@ public class AzBakedModelCache extends AzResourceCache {
         return ids;
     }
 
-    private void tryInsertBakedModelResult(
-        ResourceLocation resourceLocation,
-        Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> result
-    ) {
-        result.inspect(bakedModel -> bakedModels.put(resourceLocation, bakedModel));
-    }
-
     private Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> loadDefaultBakedModel(ResourceManager resourceManager) {
         var defaultModelResult = ResourceFileLoader.loadObjectFromFile(
-            JsonUtil.GEO_GSON,
-            Model.class,
-            DEFAULT_MODEL_RESOURCE_LOCATION,
-            resourceManager
+                JsonUtil.GEO_GSON,
+                Model.class,
+                DEFAULT_MODEL_RESOURCE_LOCATION,
+                resourceManager
         );
 
-        // TODO: Clean this up when Result.toOption becomes available.
         var defaultBakedModelResult = defaultModelResult.map(
-            model -> bakeModel(DEFAULT_MODEL_RESOURCE_LOCATION, defaultModelResult.unwrap())
+                model -> bakeModel(DEFAULT_MODEL_RESOURCE_LOCATION, model)
         );
 
-        switch (defaultBakedModelResult) {
-            case Err<AzBakedModel, ResourceFileLoader.ObjectLoadError> err -> err.unwrapErr()
-                .log(LOGGER, Level.ERROR, "Failed to load default model '{}'.", "", DEFAULT_MODEL_RESOURCE_LOCATION);
-            // TODO: This is semantically misleading at best and brittle at worst. "Defaults" should never change.
-            case Ok<AzBakedModel, ResourceFileLoader.ObjectLoadError> ignored -> AzBakedModel.setDefault(defaultBakedModelResult.unwrap());
+        if (defaultBakedModelResult instanceof Err<AzBakedModel, ResourceFileLoader.ObjectLoadError> err) {
+            err.unwrapErr()
+                    .log(LOGGER, Level.ERROR, "Failed to load default model '{}'.", "", DEFAULT_MODEL_RESOURCE_LOCATION);
         }
 
         return defaultBakedModelResult;
     }
 
     private Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> loadAndBakeModel(
-        ResourceManager resourceManager,
-        ResourceLocation resourceLocation,
-        Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> defaultBakedModelResult
+            ResourceManager resourceManager,
+            ResourceLocation resourceLocation,
+            Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> defaultBakedModelResult
     ) {
         var result = ResourceFileLoader.loadObjectFromFile(JsonUtil.GEO_GSON, Model.class, resourceLocation, resourceManager);
 
@@ -130,9 +160,9 @@ public class AzBakedModelCache extends AzResourceCache {
         return Result.ok(bakeModel(resourceLocation, model));
     }
 
-    private AzBakedModel bakeModel(ResourceLocation resource, Model defaultModel) {
+    private AzBakedModel bakeModel(ResourceLocation resource, Model model) {
         return AzBakedModelFactoryRegistry
-            .getForNamespace(resource.getNamespace())
-            .constructGeoModel(GeometryTree.fromModel(defaultModel));
+                .getForNamespace(resource.getNamespace())
+                .constructGeoModel(GeometryTree.fromModel(model));
     }
 }

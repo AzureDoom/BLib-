@@ -5,12 +5,13 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
-import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehavior;
-import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehaviors;
 import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.easing.AzEasingTypes;
+import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehavior;
+import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehaviors;
 
 public class AzAnimationStageProperties extends AzAnimationProperties {
+
 
     public static final AzAnimationStageProperties DEFAULT = new AzAnimationStageProperties(
         1D,
@@ -19,6 +20,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
         0F,
         0D,
         0D,
+        1D,
         false
     );
 
@@ -29,10 +31,11 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
         null,
         null,
         null,
+        null,
         null
     );
 
-    private final AzPlayBehavior playBehavior;
+    private final @Nullable AzPlayBehavior playBehavior;
 
     public AzAnimationStageProperties(
         @Nullable Double animationSpeed,
@@ -41,6 +44,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
         @Nullable Float transitionLength,
         @Nullable Double startTickOffset,
         @Nullable Double freezeTickOffset,
+        @Nullable Double repeatXTimes,
         @Nullable Boolean isReversing
     ) {
         super(
@@ -49,6 +53,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
         this.playBehavior = playBehavior;
@@ -67,6 +72,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }
@@ -80,6 +86,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }
@@ -92,6 +99,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }
@@ -105,6 +113,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }
@@ -118,6 +127,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }
@@ -131,6 +141,21 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
+            isReversing
+        );
+    }
+
+    @Override
+    public AzAnimationStageProperties withRepeatXTimes(double repeatXTimes) {
+        return new AzAnimationStageProperties(
+            animationSpeed,
+            easingType,
+            playBehavior,
+            transitionLength,
+            startTickOffset,
+            freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }
@@ -144,6 +169,7 @@ public class AzAnimationStageProperties extends AzAnimationProperties {
             transitionLength,
             startTickOffset,
             freezeTickOffset,
+            repeatXTimes,
             isReversing
         );
     }

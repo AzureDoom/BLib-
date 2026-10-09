@@ -9,14 +9,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.blib.api.client.animation.v1.animator.AzAnimator;
+import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehavior;
+import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehaviorRegistry;
 import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehaviors;
 import com.blib.api.client.animation.v1.command.policy.AzDispatchPolicy;
 import com.blib.api.client.animation.v1.command.policy.OnBlockedByEndless;
 import com.blib.api.client.animation.v1.command.policy.OnPropertiesChanged;
 import com.blib.api.client.animation.v1.command.sequence.AzAnimationSequence;
 import com.blib.api.client.animation.v1.keyframe.AzKeyframeCallbacks;
+import com.blib.internal.client.animation.primitive.AzBakedAnimation;
 import com.blib.internal.client.animation.primitive.AzQueuedAnimation;
 import com.blib.internal.client.animation.property.AzAnimationProperties;
+import com.blib.internal.client.animation.property.AzAnimationStageProperties;
 import com.blib.internal.client.animation.track.AzAbstractAnimationTrack;
 import com.blib.internal.client.animation.track.AzAnimationQueue;
 import com.blib.internal.client.animation.track.AzAnimationTrackTimer;
@@ -65,7 +69,13 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
 
     private AzAnimationProperties animationProperties;
 
-    // AzureLib 3.1.13 layering. Defaults (weight 1, OVERRIDE, every bone) reproduce the pre-layering result exactly.
+    /** Finished plays of the current animation under REPEAT_X_TIMES; reset when the animation changes. */
+    private int repeatCount;
+
+    /** Whether the current animation's direction has been flipped (by PING_PONG or a mid-play reverse). */
+    private boolean directionFlipped;
+
+    // BLib 3.1.13 layering. Defaults (weight 1, OVERRIDE, every bone) reproduce the pre-layering result exactly.
     private double weight = 1;
 
     private AzBlendMode blendMode = AzBlendMode.OVERRIDE;
@@ -113,6 +123,11 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
     }
 
     public List<AzQueuedAnimation> tryCreateAnimationQueue(T animatable, AzAnimationSequence sequence) {
+        if (animatable == null) {
+            LOGGER.warn("Unable to create animation queue: animatable is null");
+            return List.of();
+        }
+
         var stages = sequence.stages();
         var animations = new ArrayList<AzQueuedAnimation>();
 
@@ -127,7 +142,10 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
                 );
                 return List.of();
             } else {
-                animations.add(new AzQueuedAnimation(animation, stage.properties().playBehavior()));
+                var properties = stage.properties();
+                var reverseOverride = properties.hasReversing() ? properties.isReversing() : null;
+                var playBehavior = resolvePlayBehavior(properties, animation);
+                animations.add(new AzQueuedAnimation(animation, playBehavior, reverseOverride));
             }
         }
 
@@ -137,9 +155,11 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
     public void update() {
         // Adjust the tick before making any updates.
         trackTimer.update();
+        // Clear last frame's sampled points; the bone queues are reused rather than reallocated every frame.
+        boneAnimationQueueCache.prepareFrame();
         // Run state machine updates.
         stateMachine.update();
-        // Advance any weight fade before applying this frame's values (AzureLib 3.1.13 layering).
+        // Advance any weight fade before applying this frame's values (BLib 3.1.13 layering).
         if (weightFade.isActive()) {
             weight = weightFade.update(animator.context().timer().getAnimTime());
         }
@@ -344,7 +364,7 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
         return stateMachine;
     }
 
-    /** @return this track's layer weight, 0 to 1 (AzureLib 3.1.13 layering) */
+    /** @return this track's layer weight, 0 to 1 (BLib 3.1.13 layering) */
     public double weight() {
         return weight;
     }
@@ -405,9 +425,163 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
 
     public void setCurrentAnimation(AzQueuedAnimation currentAnimation) {
         this.currentAnimation = currentAnimation;
+        this.repeatCount = 0;
+        this.directionFlipped = false;
 
         if (currentAnimation == null) {
             this.currentSequence = null;
         }
+    }
+
+    // ---- Repeat count ----
+
+    public int repeatCount() {
+        return repeatCount;
+    }
+
+    /**
+     * Counts one more finished play of the current animation.
+     *
+     * @return the number of finished plays so far
+     */
+    public int incrementRepeatCount() {
+        return ++repeatCount;
+    }
+
+    public void resetRepeatCount() {
+        this.repeatCount = 0;
+    }
+
+    /**
+     * The repeat amount for REPEAT_X_TIMES: the track's own setting if one was commanded (above 1), otherwise the
+     * animation file's {@code repeat_times}.
+     */
+    public double effectiveRepeatXTimes() {
+        var commanded = animationProperties.repeatXTimes();
+
+        if (commanded > 1 || currentAnimation == null) {
+            return commanded;
+        }
+
+        var authored = currentAnimation.animation().defaults().repeatTimes();
+        return authored > 0 ? authored : commanded;
+    }
+
+    /**
+     * The freeze tick for FREEZE_ON_FRAME: the track's own offset if set, otherwise the file's {@code freeze_at}.
+     */
+    public double effectiveFreezeTickOffset() {
+        var commanded = animationProperties.freezeTickOffset();
+
+        if (commanded > 0 || currentAnimation == null) {
+            return commanded;
+        }
+
+        var defaults = currentAnimation.animation().defaults();
+
+        if (currentAnimation.playBehavior() == AzPlayBehaviors.FREEZE_ON_FRAME && defaults.hasFreezeTick()) {
+            return defaults.freezeTick();
+        }
+
+        return commanded;
+    }
+
+    // ---- Reverse playback ----
+
+    /**
+     * Whether the current animation is playing backward: the stage's reverse setting (or the track's, if the stage
+     * didn't set one), flipped by PING_PONG legs and mid-play reverses.
+     */
+    public boolean isPlayingReversed() {
+        var base = currentAnimation != null && currentAnimation.reverseOverride() != null
+            ? currentAnimation.reverseOverride()
+            : animationProperties.isReversing();
+
+        return base ^ directionFlipped;
+    }
+
+    /**
+     * The tick to sample the current animation's keyframes at: the timer's progress, clamped to the animation and
+     * mirrored when playing reversed. The timer itself always counts up.
+     */
+    public double sampleTick() {
+        var progress = trackTimer.getAdjustedTick();
+
+        if (currentAnimation == null) {
+            return progress;
+        }
+
+        var length = currentAnimation.animation().length();
+        var clamped = Math.clamp(progress, 0D, length);
+
+        return isPlayingReversed() ? length - clamped : clamped;
+    }
+
+    /** Flips the playback direction for the rest of the current animation (used by PING_PONG between legs). */
+    public void flipDirection() {
+        this.directionFlipped = !directionFlipped;
+    }
+
+    /**
+     * Turns the current animation around where it is: the pose stays put and playback continues the other way.
+     */
+    public void reverseInPlace() {
+        if (currentAnimation == null) {
+            return;
+        }
+
+        var length = currentAnimation.animation().length();
+        var progress = Math.clamp(trackTimer.getAdjustedTick(), 0D, length);
+
+        flipDirection();
+        trackTimer.seek(length - progress);
+        keyframeManager.keyframeCallbackHandler().resync(sampleTick(), isPlayingReversed());
+    }
+
+    /**
+     * Sets whether this track plays backward. If an animation is playing and its direction changes, it turns around
+     * in place instead of jumping.
+     */
+    public void setReversing(boolean reversing) {
+        var wasReversed = isPlayingReversed();
+        this.animationProperties = animationProperties.withShouldReverse(reversing);
+
+        if (currentAnimation != null && isPlayingReversed() != wasReversed) {
+            // The property change already flipped isPlayingReversed(); undo that so reverseInPlace's flip is the only
+            // one, and the timer is re-seeked to keep the pose continuous.
+            flipDirection();
+            reverseInPlace();
+        }
+    }
+
+    // ---- Play behavior resolution ----
+
+    /**
+     * The play behavior to queue a stage with: the stage's own, unless it is unset or AS_AUTHORED, in which case the
+     * animation file's {@code loop} mode (play once if the file has none or names an unknown one).
+     */
+    private AzPlayBehavior resolvePlayBehavior(AzAnimationStageProperties properties, AzBakedAnimation animation) {
+        if (properties.hasPlayBehavior() && properties.playBehavior() != AzPlayBehaviors.AS_AUTHORED) {
+            return properties.playBehavior();
+        }
+
+        var authored = animation.defaults().playBehavior();
+
+        if (authored == null) {
+            return AzPlayBehaviors.PLAY_ONCE;
+        }
+
+        var behavior = AzPlayBehaviorRegistry.getOrNull(authored);
+
+        if (behavior == null || behavior == AzPlayBehaviors.AS_AUTHORED) {
+            LOGGER.warn(
+                "Animation '{}' asks for unknown play behavior '{}', playing it once instead",
+                animation.name(),
+                authored
+            );
+            return AzPlayBehaviors.PLAY_ONCE;
+        }
+
+        return behavior;
     }
 }

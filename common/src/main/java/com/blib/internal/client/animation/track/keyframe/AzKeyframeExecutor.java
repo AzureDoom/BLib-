@@ -3,20 +3,36 @@ package com.blib.internal.client.animation.track.keyframe;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.NoSuchElementException;
+import java.util.function.DoubleSupplier;
 
 import com.blib.api.client.animation.v1.track.AzAnimationTrack;
-import com.blib.api.common.spatial.v1.Axis;
-import com.blib.internal.client.animation.primitive.AzQueuedAnimation;
 import com.blib.internal.client.animation.track.AzBoneAnimationQueueCache;
+import com.blib.internal.client.animation.primitive.AzQueuedAnimation;
+import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueries;
 import com.blib.internal.common.molang.MolangVariableRef;
-import com.blib.internal.common.molang.math.IValue;
+import com.blib.api.common.spatial.v1.Axis;
 
+/**
+ * AzKeyframeExecutor is a specialized implementation of {@link AzAbstractKeyframeExecutor}, designed to handle
+ * keyframe-based animations for animatable objects. It delegates animation control to an {@link AzAnimationTrack}
+ * and manages bone animation queues through an {@link AzBoneAnimationQueueCache}. <br>
+ * This class processes and applies transformations such as rotation, position, and scale to bone animations, based on
+ * the current tick time and the keyframes associated with each bone animation.
+ *
+ * @param <T> The type of the animatable object to which the keyframe animations will be applied
+ */
 public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
+
+    private static final MolangVariableRef ANIM_TIME_REF = new MolangVariableRef(MolangQueries.ANIM_TIME);
 
     private final AzAnimationTrack<T> animationTrack;
 
     private final AzBoneAnimationQueueCache<T> boneAnimationQueueCache;
+
+    private double currentAdjustedTick;
+
+    private final DoubleSupplier animTimeSupplier = () -> currentAdjustedTick / 20d;
 
     public AzKeyframeExecutor(
         AzAnimationTrack<T> animationTrack,
@@ -26,23 +42,25 @@ public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
         this.boneAnimationQueueCache = boneAnimationQueueCache;
     }
 
-    private static final MolangVariableRef ANIM_TIME_REF = new MolangVariableRef(MolangQueries.ANIM_TIME);
-
-    /** The adjusted tick of the frame being executed, read by {@link #animTimeSupplier}. */
-    private double currentAdjustedTick;
-
-    private final java.util.function.DoubleSupplier animTimeSupplier = () -> currentAdjustedTick / 20d;
-
+    /**
+     * Handle the current animation's state modifications and translations
+     *
+     * @param crashWhenCantFindBone Whether the track should throw an exception when unable to find the required
+     *                              bone, or continue with the remaining bones
+     */
     public void execute(@NotNull AzQueuedAnimation currentAnimation, T animatable, boolean crashWhenCantFindBone) {
         var keyframeCallbackHandler = animationTrack.keyframeManager().keyframeCallbackHandler();
-        var trackTimer = animationTrack.trackTimer();
-
-        // AzureLib 3.1.13 port: bound through a reference resolved once to a supplier created once - no allocation.
-        currentAdjustedTick = trackTimer.getAdjustedTick();
+        currentAdjustedTick = animationTrack.sampleTick();
         ANIM_TIME_REF.setMemoized(animTimeSupplier);
 
-        for (var boneAnimation : currentAnimation.animation().boneAnimations()) {
-            var boneAnimationQueue = boneAnimationQueueCache.getOrNull(boneAnimation.boneName());
+        var animation = currentAnimation.animation();
+        var boneAnimations = animation.boneAnimations();
+        var cursors = prepareKeyframeCursors(animation);
+        var queues = boneAnimationQueueCache.resolveQueues(animation);
+
+        for (var boneIndex = 0; boneIndex < boneAnimations.length; boneIndex++) {
+            var boneAnimation = boneAnimations[boneIndex];
+            var boneAnimationQueue = queues[boneIndex];
 
             if (boneAnimationQueue == null) {
                 if (crashWhenCantFindBone) {
@@ -52,72 +70,41 @@ public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
                 continue;
             }
 
-            // AzureLib 3.1.13 layering: bones outside the track's mask are skipped before their keyframes are
-            // evaluated. The all-bones mask (the default) skips the check entirely.
+            // Bones outside the track's mask are skipped before their keyframes are evaluated.
             var mask = animationTrack.boneMask();
 
+            // The all-bones mask (the default) skips the check entirely.
             if (!mask.isAll() && !mask.includes(boneAnimationQueue.bone())) {
                 continue;
             }
 
-            var rotationKeyframes = boneAnimation.rotationKeyframes();
-            var positionKeyframes = boneAnimation.positionKeyframes();
-            var scaleKeyframes = boneAnimation.scaleKeyframes();
-            var adjustedTick = trackTimer.getAdjustedTick();
-
-            updateRotation(rotationKeyframes, boneAnimationQueue, adjustedTick);
-            updatePosition(positionKeyframes, boneAnimationQueue, adjustedTick);
-            updateScale(scaleKeyframes, boneAnimationQueue, adjustedTick);
+            sampleStack(boneAnimation.rotationKeyframes(), ROTATION, boneIndex, boneAnimationQueue, cursors);
+            sampleStack(boneAnimation.positionKeyframes(), POSITION, boneIndex, boneAnimationQueue, cursors);
+            sampleStack(boneAnimation.scaleKeyframes(), SCALE, boneIndex, boneAnimationQueue, cursors);
         }
 
-        keyframeCallbackHandler.handle(animatable, trackTimer.getAdjustedTick());
+        keyframeCallbackHandler.handle(animatable, currentAdjustedTick, animationTrack.isPlayingReversed());
     }
 
-    private void updateRotation(
+    /**
+     * Samples all three axes of one transform at the current tick and writes them into the bone's queue.
+     */
+    private void sampleStack(
         AzKeyframeStack<AzKeyframe<IValue>> keyframes,
+        int transform,
+        int boneIndex,
         AzBoneAnimationQueue queue,
-        double adjustedTick
+        int[] cursors
     ) {
         if (keyframes.xKeyframes().isEmpty()) {
             return;
         }
 
-        var x = getAnimationPointAtTick(keyframes.xKeyframes(), adjustedTick, true, Axis.X);
-        var y = getAnimationPointAtTick(keyframes.yKeyframes(), adjustedTick, true, Axis.Y);
-        var z = getAnimationPointAtTick(keyframes.zKeyframes(), adjustedTick, true, Axis.Z);
+        var tick = currentAdjustedTick;
+        var cursor = cursorIndex(boneIndex, transform, 0);
 
-        queue.addRotations(x, y, z);
-    }
-
-    private void updatePosition(
-        AzKeyframeStack<AzKeyframe<IValue>> keyframes,
-        AzBoneAnimationQueue queue,
-        double adjustedTick
-    ) {
-        if (keyframes.xKeyframes().isEmpty()) {
-            return;
-        }
-
-        var x = getAnimationPointAtTick(keyframes.xKeyframes(), adjustedTick, false, Axis.X);
-        var y = getAnimationPointAtTick(keyframes.yKeyframes(), adjustedTick, false, Axis.Y);
-        var z = getAnimationPointAtTick(keyframes.zKeyframes(), adjustedTick, false, Axis.Z);
-
-        queue.addPositions(x, y, z);
-    }
-
-    private void updateScale(
-        AzKeyframeStack<AzKeyframe<IValue>> keyframes,
-        AzBoneAnimationQueue queue,
-        double adjustedTick
-    ) {
-        if (keyframes.xKeyframes().isEmpty()) {
-            return;
-        }
-
-        var x = getAnimationPointAtTick(keyframes.xKeyframes(), adjustedTick, false, Axis.X);
-        var y = getAnimationPointAtTick(keyframes.yKeyframes(), adjustedTick, false, Axis.Y);
-        var z = getAnimationPointAtTick(keyframes.zKeyframes(), adjustedTick, false, Axis.Z);
-
-        queue.addScales(x, y, z);
+        writeChannel(queue, transform, Axis.X, keyframes.xChannel(), tick, cursors, cursor);
+        writeChannel(queue, transform, Axis.Y, keyframes.yChannel(), tick, cursors, cursor + 1);
+        writeChannel(queue, transform, Axis.Z, keyframes.zChannel(), tick, cursors, cursor + 2);
     }
 }

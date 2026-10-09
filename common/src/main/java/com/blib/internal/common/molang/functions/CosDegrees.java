@@ -1,8 +1,17 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.common.molang.functions;
 
 import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.math.functions.Function;
+import com.blib.internal.common.molang.math.functions.classic.Cos;
 
+/**
+ * Replacement function for {@link Cos}, operating in degrees rather than radians.
+ */
 public class CosDegrees extends Function {
 
     public CosDegrees(IValue[] values, String name) throws Exception {

@@ -1,9 +1,18 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.common.molang.expressions;
 
-import com.blib.internal.common.molang.MolangParser;
 import com.blib.internal.common.molang.math.Constant;
 import com.blib.internal.common.molang.math.IValue;
+import com.blib.internal.common.molang.MolangParser;
 
+/**
+ * Molang extension for the {@link IValue} system. Used to handle values and expressions specific to Molang
+ * deserialization
+ */
 public class MolangValue implements IValue {
 
     private final IValue value;

@@ -6,30 +6,65 @@ import org.joml.Vector2d;
 
 import java.util.List;
 
+import com.blib.internal.client.animation.track.keyframe.AzAnimationPoint;
 import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.easing.AzEasingUtil;
-import com.blib.internal.client.animation.track.keyframe.AzAnimationPoint;
 import com.blib.internal.common.molang.math.IValue;
 
+/**
+ * The BezierEasing class represents an abstract easing type that facilitates smooth transitions in animation using
+ * cubic Bézier curves. This is implemented as part of the AzEasingType interface and provides utilities for generating
+ * Bézier curves based on animation parameters.
+ * <p>
+ * <b>Author:</b> <a href="https://github.com/ZigyTheBird">ZigyTheBird</a>
+ */
 public abstract class BezierEasing implements AzEasingType {
 
     private static final double DEFAULT_RIGHT_TIME = 0.1;
 
     private static final double DEFAULT_LEFT_TIME = -0.1;
 
-    private static final int CURVE_RESOLUTION = 200;
-
     private static final double TICKS_PER_SECOND = 20;
+
+    private final Vector2d scratchA = new Vector2d();
+
+    private final Vector2d scratchB = new Vector2d();
+
+    private final Vector2d cpStart = new Vector2d();
+
+    private final Vector2d cpControl1 = new Vector2d();
+
+    private final Vector2d cpControl2 = new Vector2d();
+
+    private final Vector2d cpEnd = new Vector2d();
+
+    private static final Double2DoubleFunction LINEAR_FALLBACK = AzEasingUtil.easeIn(AzEasingUtil::linear);
 
     @Override
     public Double2DoubleFunction buildTransformer(Double value) {
-        return AzEasingUtil.easeIn(AzEasingUtil::linear);
+        return LINEAR_FALLBACK;
     }
 
+    /**
+     * Applies a specified easing transformation to an animation point based on the provided easing value and lerping
+     * value.
+     *
+     * @param animationPoint the point within the animation sequence, containing keyframe data and other parameters
+     * @param easingValue    the easing configuration value influencing the animation behavior
+     * @param lerpValue      the interpolation value for determining the current animation state
+     * @return the eased result as a double, representing the updated animation state
+     */
     @Override
     public double apply(AzAnimationPoint animationPoint, Double easingValue, double lerpValue) {
-        List<? extends IValue> easingArgs = animationPoint.keyframe().easingArgs();
-        if (easingArgs.isEmpty()) {
+        var keyframe = animationPoint.keyframe();
+
+        if (keyframe == null) {
+            return handleNoEasingArgs(animationPoint, easingValue, lerpValue);
+        }
+
+        List<? extends IValue> easingArgs = keyframe.easingArgs();
+
+        if (easingArgs.size() < 2) {
             return handleNoEasingArgs(animationPoint, easingValue, lerpValue);
         }
 
@@ -59,33 +94,51 @@ public abstract class BezierEasing implements AzEasingType {
             rightValue,
             normalizedTransitionDuration
         );
+
         double time = normalizedTransitionDuration * lerpValue;
 
-        List<Vector2d> points = curve.getPoints(CURVE_RESOLUTION);
-        Vector2d[] closestPoints = findClosestPoints(points, time);
-
-        return Mth.lerp(
-            Math.clamp(
-                Mth.lerp(time, closestPoints[0].x, closestPoints[1].x),
-                0,
-                1
-            ),
-            closestPoints[0].y,
-            closestPoints[1].y
-        );
+        return curve.evaluateAtTime(time, scratchA, scratchB);
     }
 
+    @Override
+    public boolean usesKeyframeData() {
+        return true;
+    }
+
+    /**
+     * Determines whether the easing process should occur before a specified condition or point in the animation
+     * sequence. This method is abstract and must be implemented by subclasses to define the specific behavior of the
+     * easing evaluation.
+     *
+     * @return true if the easing is configured to occur before the specified condition or animation evaluation point;
+     *         false otherwise.
+     */
     public abstract boolean isEasingBefore();
 
+    /**
+     * Handles the scenario where no specific easing arguments are provided by applying a linear interpolation between
+     * the animation start value and end value, transformed through a calculated easing function.
+     *
+     * @param animationPoint the current animation point containing keyframe data and start and end values for the
+     *                       animation
+     * @param easingValue    the easing configuration value used to generate the transformation function
+     * @param lerpValue      the interpolation (lerp) value to determine the current progress of the animation
+     * @return the transformed interpolated value as a double, representing the current state of the animation
+     */
     private double handleNoEasingArgs(AzAnimationPoint animationPoint, Double easingValue, double lerpValue) {
         Double2DoubleFunction transformer = buildTransformer(easingValue);
         return Mth.lerp(
-            transformer.apply(lerpValue),
+            transformer.get(lerpValue),
             animationPoint.animationStartValue(),
             animationPoint.animationEndValue()
         );
     }
 
+    /**
+     * Builds a {@link CubicBezierCurve} using reusable control-point {@link Vector2d} instances. The returned
+     * {@code CubicBezierCurve} is a record holding references to these fields — it must not be stored beyond the
+     * current {@link #apply} call.
+     */
     private CubicBezierCurve buildBezierCurve(
         AzAnimationPoint animationPoint,
         double clampedLeftTime,
@@ -94,37 +147,11 @@ public abstract class BezierEasing implements AzEasingType {
         double rightValue,
         double normalizedTransitionDuration
     ) {
-        return new CubicBezierCurve(
-            new Vector2d(0, animationPoint.animationStartValue()),
-            new Vector2d(clampedRightTime, animationPoint.animationStartValue() + rightValue),
-            new Vector2d(
-                clampedLeftTime + normalizedTransitionDuration,
-                animationPoint.animationEndValue() + leftValue
-            ),
-            new Vector2d(normalizedTransitionDuration, animationPoint.animationEndValue())
-        );
+        cpStart.set(0, animationPoint.animationStartValue());
+        cpControl1.set(clampedRightTime, animationPoint.animationStartValue() + rightValue);
+        cpControl2.set(clampedLeftTime + normalizedTransitionDuration, animationPoint.animationEndValue() + leftValue);
+        cpEnd.set(normalizedTransitionDuration, animationPoint.animationEndValue());
+
+        return new CubicBezierCurve(cpStart, cpControl1, cpControl2, cpEnd);
     }
-
-    private Vector2d[] findClosestPoints(List<Vector2d> points, double time) {
-        Vector2d closest = new Vector2d();
-        Vector2d secondClosest = new Vector2d();
-        double closestDiff = Double.POSITIVE_INFINITY;
-        double secondClosestDiff = Double.POSITIVE_INFINITY;
-
-        for (Vector2d point : points) {
-            double diff = Math.abs(point.x - time);
-            if (diff < closestDiff) {
-                secondClosest.set(closest);
-                secondClosestDiff = closestDiff;
-
-                closest.set(point);
-                closestDiff = diff;
-            } else if (diff < secondClosestDiff) {
-                secondClosest.set(point);
-                secondClosestDiff = diff;
-            }
-        }
-        return new Vector2d[] { closest, secondClosest };
-    }
-
 }

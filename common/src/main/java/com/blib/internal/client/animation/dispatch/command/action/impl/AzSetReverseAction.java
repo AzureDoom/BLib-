@@ -13,9 +13,8 @@ public record AzSetReverseAction<T>(
     public void handle(AzAnimator<?, T> animator) {
         target.forEach(
             animator.getAnimationTrackContainer(),
-            track -> track.setAnimationProperties(
-                track.animationProperties().withShouldReverse(hasReverse)
-            )
+            // Turns a playing animation around in place instead of snapping to the mirrored pose.
+            track -> track.setReversing(hasReverse)
         );
     }
 }

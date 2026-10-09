@@ -42,12 +42,14 @@ public class BLibReloadListeners {
         Executor backgroundExecutor,
         Executor gameExecutor
     ) {
-        return CompletableFuture
-            .allOf(
-                AzBakedAnimationCache.getInstance().loadAnimations(backgroundExecutor, resourceManager),
-                AzBakedModelCache.getInstance().loadModels(backgroundExecutor, resourceManager)
-            )
-            .thenCompose(stage::wait)
-            .thenAcceptAsync(empty -> {}, gameExecutor);
+        var animations = AzBakedAnimationCache.getInstance().loadAnimations(backgroundExecutor, resourceManager);
+        var models = AzBakedModelCache.getInstance().loadModels(backgroundExecutor, resourceManager);
+
+        return CompletableFuture.allOf(animations, models)
+                .thenCompose(stage::wait)
+                .thenAcceptAsync(ignored -> {
+                    AzBakedAnimationCache.getInstance().apply(animations.join());
+                    AzBakedModelCache.getInstance().apply(models.join());
+                }, gameExecutor);
     }
 }

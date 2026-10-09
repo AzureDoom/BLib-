@@ -48,6 +48,10 @@ public final class DismembermentManager implements NBTSerializable {
 
     private Set<ResourceLocation> detachedLimbs;
 
+    private transient Set<ResourceLocation> detachedLimbsView;
+
+    private transient Set<ResourceLocation> viewSource;
+
     private final Map<ResourceLocation, Float> limbDamage = new HashMap<>();
 
     public DismembermentManager(LivingEntity entity) {
@@ -71,8 +75,17 @@ public final class DismembermentManager implements NBTSerializable {
         return entity;
     }
 
+    /** Read-only view of the detached limbs. The view is cached; it isn't a new object per call. */
     public Set<ResourceLocation> getDetachedLimbIds() {
-        return Collections.unmodifiableSet(detachedLimbs);
+        var view = detachedLimbsView;
+
+        // detachedLimbs can be replaced (e.g. on load/sync), so rebuild the view if it points at an old set.
+        if (view == null || viewSource != detachedLimbs) {
+            viewSource = detachedLimbs;
+            view = detachedLimbsView = Collections.unmodifiableSet(detachedLimbs);
+        }
+
+        return view;
     }
 
     public boolean isDetached(ResourceLocation limbId) {

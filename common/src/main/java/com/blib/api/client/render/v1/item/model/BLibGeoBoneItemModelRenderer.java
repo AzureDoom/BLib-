@@ -47,7 +47,7 @@ public class BLibGeoBoneItemModelRenderer extends AzItemModelRenderer {
         }
 
         var poseStack = context.poseStack();
-        itemRendererPipeline.setModelRenderTranslations(new Matrix4f(poseStack.last().pose()));
+        itemRendererPipeline.getModelRenderTranslations().set(poseStack.last().pose());
 
         // Replace AzModelRenderer.render's top-level-bone walk with a single-bone walk on the configured
         // target. The ancestor chain (root → ... → target) is never traversed, so its bind-pose translations

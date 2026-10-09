@@ -24,7 +24,7 @@ public class AutoGlowingTexture extends AzAbstractTexture {
 
     protected final ResourceLocation glowLayer;
 
-    /** AzureLib 3.1.13 - {@return whether the texture has an animation section in its .mcmeta} */
+    /** BLib 3.1.13 - {@return whether the texture has an animation section in its .mcmeta} */
     private static boolean hasAnimationMetadata(ResourceManager resourceManager, ResourceLocation texture) {
         return resourceManager.getResource(texture).flatMap(resource -> {
             try {
@@ -48,7 +48,7 @@ public class AutoGlowingTexture extends AzAbstractTexture {
         AbstractTexture originalTexture;
 
         try {
-            // AzureLib 3.1.13: if another mod (GeckoLib, for one) replaced the base texture's animated wrapper with its
+            // BLib 3.1.13: if another mod (GeckoLib, for one) replaced the base texture's animated wrapper with its
             // own, the glowmask was built from the whole strip of frames squashed together and the glow parts stayed
             // visible on the base. An animated base that is not ours is re-registered as ours first.
             originalTexture = mc.submit(() -> {
@@ -93,6 +93,7 @@ public class AutoGlowingTexture extends AzAbstractTexture {
                         glowImage.getHeight(),
                         this.glowLayer
                     );
+                    AzGlowCoverage.unregister(this.glowLayer);
                     return null;
                 }
 
@@ -124,6 +125,14 @@ public class AutoGlowingTexture extends AzAbstractTexture {
         boolean animated = originalTexture instanceof AnimatableTexture animatableTexture
             && animatableTexture
                 .isAnimated();
+
+        // Record which UV areas actually glow, so AzAutoGlowingLayer can skip quads that would draw nothing.
+        if (animated) {
+            var frameSize = ((AnimatableTexture) originalTexture).animationContents.frameSize;
+            AzGlowCoverage.registerFrames(this.glowLayer, mask, frameSize.width(), frameSize.height());
+        } else {
+            AzGlowCoverage.register(this.glowLayer, mask);
+        }
 
         if (animated)
             ((AnimatableTexture) originalTexture).animationContents.animatedTexture.setGlowMaskTexture(

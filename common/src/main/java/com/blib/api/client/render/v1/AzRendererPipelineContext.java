@@ -45,6 +45,10 @@ public abstract class AzRendererPipelineContext<K, T> {
 
     private VertexConsumer vertexConsumer;
 
+    private boolean applyAnimationOnReRender;
+
+    private @Nullable AzQuadFilter quadFilter;
+
     private float cubeInflate;
 
     private boolean skipFlatCubes;
@@ -129,6 +133,38 @@ public abstract class AzRendererPipelineContext<K, T> {
 
     public AzBakedModel bakedModel() {
         return bakedModel;
+    }
+
+    /**
+     * Swaps the model the current pass renders, e.g. for a render layer that re-renders a different model with the
+     * same animatable. {@code null} falls back to {@link AzBakedModel#getDefault()}.
+     */
+    public void setBakedModel(@Nullable AzBakedModel bakedModel) {
+        this.bakedModel = bakedModel != null ? bakedModel : AzBakedModel.getDefault();
+    }
+
+    /**
+     * Whether a re-render pass should run the animator again (normally only the first pass animates). Set for the
+     * duration of {@link AzRendererPipeline#reRender(AzRendererPipelineContext, boolean)}.
+     */
+    public boolean applyAnimationOnReRender() {
+        return this.applyAnimationOnReRender;
+    }
+
+    public void setApplyAnimationOnReRender(boolean applyAnimationOnReRender) {
+        this.applyAnimationOnReRender = applyAnimationOnReRender;
+    }
+
+    /**
+     * The quad filter for the current pass, or {@code null} to draw every quad. Ignored for bones with a texture
+     * override, since the filter is defined in the main texture's UV space.
+     */
+    public @Nullable AzQuadFilter quadFilter() {
+        return quadFilter;
+    }
+
+    public void setQuadFilter(@Nullable AzQuadFilter quadFilter) {
+        this.quadFilter = quadFilter;
     }
 
     public MultiBufferSource multiBufferSource() {

@@ -7,6 +7,15 @@ import com.blib.internal.client.model.AzBoneSnapshot;
 
 public class AzCachedBoneUpdateUtil {
 
+    /**
+     * Updates the cached position of a given bone by interpolating its offsets towards its initial snapshot. Stops
+     * ongoing position animations if necessary and updates the bone's position based on the reset percentage.
+     *
+     * @param bone            the bone whose position is to be updated
+     * @param boneSnapshots   a map containing snapshots of bones by their names
+     * @param animTime        the current animation time
+     * @param resetTickLength the duration over which the position reset occurs
+     */
     public static void updateCachedBonePosition(
         AzBone bone,
         Map<String, AzBoneSnapshot> boneSnapshots,
@@ -17,8 +26,28 @@ public class AzCachedBoneUpdateUtil {
             return;
         }
 
+        updateCachedBonePosition(bone, boneSnapshots.get(bone.getName()), animTime, resetTickLength);
+    }
+
+    /**
+     * {@link #updateCachedBonePosition(AzBone, Map, double, double)} with the bone's snapshot already looked up, so
+     * per-frame callers can skip the by-name map lookup.
+     */
+    public static void updateCachedBonePosition(
+        AzBone bone,
+        AzBoneSnapshot saveSnapshot,
+        double animTime,
+        double resetTickLength
+    ) {
+        if (bone.hasPositionChanged()) {
+            return;
+        }
+
         var initialSnapshot = bone.getInitialAzSnapshot();
-        var saveSnapshot = boneSnapshots.get(bone.getName());
+
+        if (saveSnapshot == null) {
+            return;
+        }
 
         if (saveSnapshot.isPosAnimInProgress()) {
             saveSnapshot.stopPosAnim(animTime);
@@ -56,6 +85,15 @@ public class AzCachedBoneUpdateUtil {
         }
     }
 
+    /**
+     * Updates the cached rotation of a given bone by interpolating its rotation values towards its initial snapshot.
+     * Stops any ongoing rotation animations if necessary and updates the bone's rotation based on the reset percentage.
+     *
+     * @param bone            the bone whose rotation is to be updated
+     * @param boneSnapshots   a map containing snapshots of bones by their names
+     * @param animTime        the current animation time
+     * @param resetTickLength the duration over which the rotation reset occurs
+     */
     public static void updateCachedBoneRotation(
         AzBone bone,
         Map<String, AzBoneSnapshot> boneSnapshots,
@@ -66,8 +104,28 @@ public class AzCachedBoneUpdateUtil {
             return;
         }
 
+        updateCachedBoneRotation(bone, boneSnapshots.get(bone.getName()), animTime, resetTickLength);
+    }
+
+    /**
+     * {@link #updateCachedBoneRotation(AzBone, Map, double, double)} with the bone's snapshot already looked up, so
+     * per-frame callers can skip the by-name map lookup.
+     */
+    public static void updateCachedBoneRotation(
+        AzBone bone,
+        AzBoneSnapshot saveSnapshot,
+        double animTime,
+        double resetTickLength
+    ) {
+        if (bone.hasRotationChanged()) {
+            return;
+        }
+
         var initialSnapshot = bone.getInitialAzSnapshot();
-        var saveSnapshot = boneSnapshots.get(bone.getName());
+
+        if (saveSnapshot == null) {
+            return;
+        }
 
         if (saveSnapshot.isRotAnimInProgress()) {
             saveSnapshot.stopRotAnim(animTime);
@@ -93,6 +151,15 @@ public class AzCachedBoneUpdateUtil {
         }
     }
 
+    /**
+     * Updates the cached scale of a given bone by interpolating its scale values towards its initial snapshot. Stops
+     * any ongoing scale animations if necessary and updates the bone's scale based on the reset percentage.
+     *
+     * @param bone            the bone whose scale is to be updated
+     * @param boneSnapshots   a map containing snapshots of bones by their names
+     * @param animTime        the current animation time
+     * @param resetTickLength the duration over which the scale reset occurs
+     */
     public static void updateCachedBoneScale(
         AzBone bone,
         Map<String, AzBoneSnapshot> boneSnapshots,
@@ -103,8 +170,28 @@ public class AzCachedBoneUpdateUtil {
             return;
         }
 
+        updateCachedBoneScale(bone, boneSnapshots.get(bone.getName()), animTime, resetTickLength);
+    }
+
+    /**
+     * {@link #updateCachedBoneScale(AzBone, Map, double, double)} with the bone's snapshot already looked up, so
+     * per-frame callers can skip the by-name map lookup.
+     */
+    public static void updateCachedBoneScale(
+        AzBone bone,
+        AzBoneSnapshot saveSnapshot,
+        double animTime,
+        double resetTickLength
+    ) {
+        if (bone.hasScaleChanged()) {
+            return;
+        }
+
         var initialSnapshot = bone.getInitialAzSnapshot();
-        var saveSnapshot = boneSnapshots.get(bone.getName());
+
+        if (saveSnapshot == null) {
+            return;
+        }
 
         if (saveSnapshot.isScaleAnimInProgress()) {
             saveSnapshot.stopScaleAnim(animTime);

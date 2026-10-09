@@ -1,3 +1,8 @@
+/**
+ * This class is a fork of the matching class found in the Geckolib repository. Original source:
+ * https://github.com/bernie-g/geckolib Copyright © 2024 Bernie-G. Licensed under the MIT License.
+ * https://github.com/bernie-g/geckolib/blob/main/LICENSE
+ */
 package com.blib.internal.client.animation.track.keyframe;
 
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -9,6 +14,15 @@ import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.easing.AzEasingTypes;
 import com.blib.internal.common.molang.math.IValue;
 
+/**
+ * Animation keyframe data
+ *
+ * @param length     The length (in ticks) the keyframe lasts for
+ * @param startValue The value to start the keyframe's transformation with
+ * @param endValue   The value to end the keyframe's transformation with
+ * @param easingType The {@code EasingType} to use for transformations
+ * @param easingArgs The arguments to provide to the easing calculation
+ */
 public record AzKeyframe<T extends IValue>(
     double length,
     T startValue,
@@ -27,7 +41,12 @@ public record AzKeyframe<T extends IValue>(
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.length, this.startValue, this.endValue, this.easingType, this.easingArgs);
+        var result = 31 + Double.hashCode(this.length);
+        result = 31 * result + Objects.hashCode(this.startValue);
+        result = 31 * result + Objects.hashCode(this.endValue);
+        result = 31 * result + Objects.hashCode(this.easingType);
+        result = 31 * result + Objects.hashCode(this.easingArgs);
+        return result;
     }
 
     @Override
@@ -35,9 +54,13 @@ public record AzKeyframe<T extends IValue>(
         if (this == obj)
             return true;
 
-        if (obj == null || getClass() != obj.getClass())
+        if (!(obj instanceof AzKeyframe<?> other))
             return false;
 
-        return hashCode() == obj.hashCode();
+        return Double.compare(this.length, other.length()) == 0
+            && Objects.equals(this.startValue, other.startValue())
+            && Objects.equals(this.endValue, other.endValue())
+            && Objects.equals(this.easingType, other.easingType())
+            && Objects.equals(this.easingArgs, other.easingArgs());
     }
 }

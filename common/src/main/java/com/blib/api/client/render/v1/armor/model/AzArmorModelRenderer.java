@@ -2,7 +2,6 @@ package com.blib.api.client.render.v1.armor.model;
 
 import net.minecraft.world.item.ItemStack;
 import org.joml.Matrix4f;
-import org.joml.Vector3f;
 
 import java.util.UUID;
 
@@ -16,6 +15,10 @@ import com.blib.internal.client.render.util.RenderUtil;
 public class AzArmorModelRenderer extends AzModelRenderer<UUID, ItemStack> {
 
     protected final AzArmorRendererPipeline armorRendererPipeline;
+
+    private final Matrix4f scratchPoseState = new Matrix4f();
+
+    private final Matrix4f scratchMatrix = new Matrix4f();
 
     public AzArmorModelRenderer(
         AzArmorRendererPipeline armorRendererPipeline,
@@ -33,7 +36,7 @@ public class AzArmorModelRenderer extends AzModelRenderer<UUID, ItemStack> {
         poseStack.translate(0, 24 / 16f, 0);
         poseStack.scale(-1, -1, 1);
 
-        if (!isReRender) {
+        if (!isReRender || context.applyAnimationOnReRender()) {
             var animatable = context.animatable();
             var animator = armorRendererPipeline.renderer().animator();
 
@@ -42,7 +45,7 @@ public class AzArmorModelRenderer extends AzModelRenderer<UUID, ItemStack> {
             }
         }
 
-        armorRendererPipeline.setModelRenderTranslations(new Matrix4f(poseStack.last().pose()));
+        armorRendererPipeline.getModelRenderTranslations().set(poseStack.last().pose());
 
         super.render(context, isReRender);
         poseStack.popPose();
@@ -54,27 +57,36 @@ public class AzArmorModelRenderer extends AzModelRenderer<UUID, ItemStack> {
         // TODO: This is dangerous.
         var ctx = armorRendererPipeline.context();
 
-        poseStack.pushPose();
         if (bone.isTrackingMatrices()) {
-            Matrix4f poseState = new Matrix4f(poseStack.last().pose());
-            Matrix4f localMatrix = RenderUtil.invertAndMultiplyMatrices(
-                poseState,
-                armorRendererPipeline.getEntityRenderTranslations()
-            );
+            var poseState = scratchPoseState.set(poseStack.last().pose());
 
             bone.setModelSpaceMatrix(
-                RenderUtil.invertAndMultiplyMatrices(poseState, armorRendererPipeline.getModelRenderTranslations())
+                RenderUtil.invertAndMultiplyMatrices(
+                    poseState,
+                    armorRendererPipeline.getModelRenderTranslations(),
+                    scratchMatrix
+                )
             );
-            bone.setLocalSpaceMatrix(RenderUtil.translateMatrix(localMatrix, new Vector3f()));
-            bone.setWorldSpaceMatrix(
-                RenderUtil.translateMatrix(new Matrix4f(localMatrix), ctx.currentEntity().position().toVector3f())
+
+            var localMatrix = RenderUtil.invertAndMultiplyMatrices(
+                poseState,
+                armorRendererPipeline.getEntityRenderTranslations(),
+                scratchMatrix
             );
+            bone.setLocalSpaceMatrix(localMatrix);
+
+            var entity = ctx.currentEntity();
+
+            if (entity != null) {
+                RenderUtil.translateMatrixInPlace(localMatrix, entity.position().toVector3f());
+            }
+
+            bone.setWorldSpaceMatrix(localMatrix);
         }
 
         context.setVertexConsumer(getOrRefreshRenderBuffer(isReRender, context, bone));
 
+        // The base class saves and restores the pose around the bone, so no pushPose here.
         super.renderRecursively(context, bone, isReRender);
-
-        poseStack.popPose();
     }
 }

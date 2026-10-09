@@ -19,6 +19,7 @@ import net.minecraft.util.Mth;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 
@@ -50,7 +51,7 @@ public class AnimatableTexture extends SimpleTexture {
                 nativeImage = NativeImage.read(inputstream);
             }
 
-            // AzureLib 3.1.13: close the previous animation's GPU texture when this one is (re)loaded - every reload
+            // BLib 3.1.13: close the previous animation's GPU texture when this one is (re)loaded - every reload
             // used to leak one.
             AnimationContents previous = this.animationContents;
             this.animationContents = new AnimationContents(nativeImage, animMeta);
@@ -61,7 +62,7 @@ public class AnimatableTexture extends SimpleTexture {
 
             if (!this.animationContents.isValid()) {
                 nativeImage.close();
-                // AzureLib 3.1.13: an animation that turned invalid on reload must stop being treated as animated.
+                // BLib 3.1.13: an animation that turned invalid on reload must stop being treated as animated.
                 this.isAnimated = false;
 
                 return;
@@ -89,7 +90,7 @@ public class AnimatableTexture extends SimpleTexture {
                 );
             });
 
-            // AzureLib 3.1.13: a reload rebuilds this texture's frames, so an auto-glowmask made from the old frames
+            // BLib 3.1.13: a reload rebuilds this texture's frames, so an auto-glowmask made from the old frames
             // is rebuilt too - otherwise the glow layer was lost after F3+T or a resource pack change.
             var glowPath = AzAbstractTexture.appendToPath(this.location, "_glowmask");
             RenderSystem.recordRenderCall(() -> {
@@ -115,11 +116,35 @@ public class AnimatableTexture extends SimpleTexture {
         setAndUpdate(texturePath, (int) RenderUtil.getCurrentTick());
     }
 
+    /**
+     * {@code setAnimationFrame(int)} on texture classes that aren't BLib's own (other mods' animated textures), looked up
+     * once per class rather than on every call. {@code null} for classes without one.
+     */
+    private static final ClassValue<Method> SET_ANIMATION_FRAME = new ClassValue<>() {
+
+        @Override
+        protected Method computeValue(Class<?> type) {
+            try {
+                return type.getMethod("setAnimationFrame", int.class);
+            } catch (NoSuchMethodException e) {
+                return null;
+            }
+        }
+    };
+
     public static void setAndUpdate(ResourceLocation texturePath, int frameTick) {
         AbstractTexture texture = Minecraft.getInstance().getTextureManager().getTexture(texturePath);
 
         if (texture instanceof AnimatableTexture animatableTexture) {
             animatableTexture.setAnimationFrame(frameTick);
+        } else {
+            var method = SET_ANIMATION_FRAME.get(texture.getClass());
+
+            if (method != null) {
+                try {
+                    method.invoke(texture, frameTick);
+                } catch (ReflectiveOperationException ignored) {}
+            }
         }
 
         RenderSystem.setShaderTexture(0, texture.getId());

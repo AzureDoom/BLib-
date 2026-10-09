@@ -21,6 +21,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
@@ -78,6 +80,9 @@ public abstract class AzAbstractTexture extends SimpleTexture {
     );
 
     protected static final String APPENDIX = "_glowmask";
+
+    /** Base texture to glowmask path, so the path isn't rebuilt (and re-allocated) on every render. */
+    private static final Map<ResourceLocation, ResourceLocation> EMISSIVE_PATHS = new ConcurrentHashMap<>();
 
     public AzAbstractTexture(ResourceLocation location) {
         super(location);
@@ -166,7 +171,7 @@ public abstract class AzAbstractTexture extends SimpleTexture {
     protected abstract RenderCall loadTexture(ResourceManager resourceManager, Minecraft mc) throws IOException;
 
     public static ResourceLocation getEmissiveResource(ResourceLocation baseResource) {
-        ResourceLocation path = appendToPath(baseResource, APPENDIX);
+        ResourceLocation path = EMISSIVE_PATHS.computeIfAbsent(baseResource, base -> appendToPath(base, APPENDIX));
 
         generateTexture(
             path,

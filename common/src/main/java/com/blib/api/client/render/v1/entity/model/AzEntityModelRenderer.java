@@ -16,13 +16,16 @@ import com.blib.api.client.model.v1.AzBone;
 import com.blib.api.client.render.v1.AzLayerRenderer;
 import com.blib.api.client.render.v1.AzModelRenderer;
 import com.blib.api.client.render.v1.AzRendererPipelineContext;
-import com.blib.api.client.render.v1.dismemberment.DismembermentBoneVisibilityFilter;
 import com.blib.api.client.render.v1.entity.pipeline.AzEntityRendererPipeline;
 import com.blib.internal.client.render.util.RenderUtil;
 
 public class AzEntityModelRenderer<T extends Entity> extends AzModelRenderer<UUID, T> {
 
     protected final AzEntityRendererPipeline<T> entityRendererPipeline;
+
+    private final Matrix4f scratchPoseState = new Matrix4f();
+
+    private final Matrix4f scratchMatrix = new Matrix4f();
 
     public AzEntityModelRenderer(
         AzEntityRendererPipeline<T> entityRendererPipeline,
@@ -61,7 +64,7 @@ public class AzEntityModelRenderer<T extends Entity> extends AzModelRenderer<UUI
         poseStack.scale(nativeScale, nativeScale, nativeScale);
         applyRotations(animatable, poseStack, ageInTicks, lerpBodyRot, partialTick, nativeScale);
 
-        if (!isReRender) {
+        if (!isReRender || context.applyAnimationOnReRender()) {
             var animator = entityRendererPipeline.getRenderer().getAnimator();
 
             if (animator != null) {
@@ -80,14 +83,8 @@ public class AzEntityModelRenderer<T extends Entity> extends AzModelRenderer<UUI
 
     @Override
     public void renderRecursively(AzRendererPipelineContext<UUID, T> context, AzBone bone, boolean isReRender) {
-        // Always-on dismemberment hide first; see AzModelRenderer.renderRecursively for rationale.
-        if (DismembermentBoneVisibilityFilter.isDetachedBone(bone, context.animatable())) {
-            return;
-        }
-
-        var visibilityFilter = entityRendererPipeline.config().boneVisibilityFilter();
-
-        if (visibilityFilter != null && visibilityFilter.shouldHideBone(bone, context.animatable())) {
+        // Dismemberment + visibility filter; see AzModelRenderer.isBoneFiltered.
+        if (isBoneFiltered(context, bone)) {
             return;
         }
 
@@ -96,58 +93,67 @@ public class AzEntityModelRenderer<T extends Entity> extends AzModelRenderer<UUI
         var entity = context.animatable();
         var poseStack = context.poseStack();
 
-        poseStack.pushPose();
-        RenderUtil.translateMatrixToBone(poseStack, bone);
-        RenderUtil.translateToPivotPoint(poseStack, bone);
-        RenderUtil.rotateMatrixAroundBone(poseStack, bone);
-        RenderUtil.scaleMatrixForBone(poseStack, bone);
+        var slot = saveBonePose(poseStack);
 
-        if (bone.isTrackingMatrices()) {
-            Matrix4f poseState = new Matrix4f(poseStack.last().pose());
-            Matrix4f localMatrix = RenderUtil.invertAndMultiplyMatrices(
-                poseState,
-                entityRendererPipeline.getEntityRenderTranslations()
-            );
+        try {
+            RenderUtil.translateMatrixToBone(poseStack, bone);
+            RenderUtil.translateToPivotPoint(poseStack, bone);
+            RenderUtil.rotateMatrixAroundBone(poseStack, bone);
+            RenderUtil.scaleMatrixForBone(poseStack, bone);
 
-            bone.setModelSpaceMatrix(
-                RenderUtil.invertAndMultiplyMatrices(poseState, entityRendererPipeline.getModelRenderTranslations())
-            );
-            bone.setLocalSpaceMatrix(
-                RenderUtil.translateMatrix(
+            if (bone.isTrackingMatrices()) {
+                var poseState = scratchPoseState.set(poseStack.last().pose());
+
+                bone.setModelSpaceMatrix(
+                    RenderUtil.invertAndMultiplyMatrices(
+                        poseState,
+                        entityRendererPipeline.getModelRenderTranslations(),
+                        scratchMatrix
+                    )
+                );
+
+                // Local space includes the render offset; world space adds the entity position on top of that.
+                var localMatrix = RenderUtil.invertAndMultiplyMatrices(
+                    poseState,
+                    entityRendererPipeline.getEntityRenderTranslations(),
+                    scratchMatrix
+                );
+                RenderUtil.translateMatrixInPlace(
                     localMatrix,
                     entityRendererPipeline.getRenderer().getRenderOffset(entity, 1).toVector3f()
+                );
+                bone.setLocalSpaceMatrix(localMatrix);
+                bone.setWorldSpaceMatrix(
+                    RenderUtil.translateMatrixInPlace(localMatrix, entity.position().toVector3f())
+                );
+            }
+
+            RenderUtil.translateAwayFromPivotPoint(poseStack, bone);
+
+            context.setVertexConsumer(getOrRefreshRenderBuffer(isReRender, context, bone));
+
+            if (
+                !boneRenderOverride(
+                    poseStack,
+                    bone,
+                    bufferSource,
+                    buffer,
+                    context.partialTick(),
+                    context.packedLight(),
+                    context.packedOverlay(),
+                    context.renderColor()
                 )
-            );
-            bone.setWorldSpaceMatrix(
-                RenderUtil.translateMatrix(new Matrix4f(localMatrix), entity.position().toVector3f())
-            );
-        }
-
-        RenderUtil.translateAwayFromPivotPoint(poseStack, bone);
-
-        context.setVertexConsumer(getOrRefreshRenderBuffer(isReRender, context, bone));
-
-        if (
-            !boneRenderOverride(
-                poseStack,
-                bone,
-                bufferSource,
-                buffer,
-                context.partialTick(),
-                context.packedLight(),
-                context.packedOverlay(),
-                context.renderColor()
             )
-        )
-            super.renderCubesOfBone(context, bone);
+                super.renderCubesOfBone(context, bone);
 
-        if (!isReRender) {
-            layerRenderer.applyRenderLayersForBone(context, bone);
+            if (!isReRender) {
+                layerRenderer.applyRenderLayersForBone(context, bone);
+            }
+
+            renderChildBones(context, bone, isReRender);
+        } finally {
+            restoreBonePose(poseStack, slot);
         }
-
-        renderChildBones(context, bone, isReRender);
-
-        poseStack.popPose();
     }
 
     private static <T extends Entity> float getLerpRot(T animatable, float partialTick) {

@@ -60,29 +60,54 @@ public class AzProvider<K, T> {
         return cache.getBakedModel(); // <- the deep-copied, per-instance model
     }
 
+    /**
+     * Provides the {@link AzAnimator} for {@code animatable}, creating and caching one if needed.
+     * <p>
+     * If the shared baked model for the animatable has been replaced since its animator was created (for example by a
+     * resource reload), the animator is rebuilt against the new model so its per-instance bone copy and tracks don't
+     * keep pointing at stale bones.
+     */
     public @Nullable AzAnimator<K, T> provideAnimator(@Nullable Entity entity, T animatable) {
-        // TODO: Instead of caching the entire animator itself, we're going to want to cache the relevant data for the
-        // entity.
         var accessor = AzAnimatorAccessor.<K, T>cast(animatable);
         var cachedAnimator = accessor.getAnimatorOrNull();
 
+        var modelLocation = modelLocationProvider.apply(entity, animatable);
+        var shared = AzBakedModelCache.getInstance().getOrNull(modelLocation);
+
         if (cachedAnimator == null) {
-            cachedAnimator = animatorSupplier.get();
-            if (cachedAnimator != null) {
-                // Create a per-instance context now
-                var ctx = cachedAnimator.getOrCreateContext(UUIDProvider.apply(animatable));
+            return cacheAnimator(accessor, shared, animatable);
+        }
 
-                // Install a deep-copied model into the bone cache BEFORE tracks
-                var modelLocation = modelLocationProvider.apply(entity, animatable);
-                var shared = AzBakedModelCache.getInstance().getOrNull(modelLocation);
-                if (shared != null) {
-                    ctx.boneCache().setActiveModel(shared); // setActiveModel deep-copies internally
-                }
+        var ctx = cachedAnimator.context();
 
-                // Tracks see a ready context & model
-                cachedAnimator.registerTracks(cachedAnimator.getAnimationTrackContainer());
-                accessor.setAnimator(cachedAnimator);
+        if (ctx != null && shared != null) {
+            var baked = ctx.boneCache().getBakedModel();
+
+            if (!baked.getModelUUID().equals(shared.getModelUUID())) {
+                // The model changed under this animator; rebuild it against the new one.
+                return cacheAnimator(accessor, shared, animatable);
             }
+        }
+
+        return cachedAnimator;
+    }
+
+    private @Nullable AzAnimator<K, T> cacheAnimator(
+        AzAnimatorAccessor<K, T> accessor,
+        @Nullable AzBakedModel shared,
+        T animatable
+    ) {
+        var cachedAnimator = animatorSupplier.get();
+
+        if (cachedAnimator != null) {
+            var ctx = cachedAnimator.getOrCreateContext(UUIDProvider.apply(animatable));
+
+            if (shared != null) {
+                ctx.boneCache().setActiveModel(shared); // setActiveModel deep-copies internally
+            }
+
+            cachedAnimator.registerTracks(cachedAnimator.getAnimationTrackContainer());
+            accessor.setAnimator(cachedAnimator);
         }
 
         return cachedAnimator;

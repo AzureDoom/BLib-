@@ -32,6 +32,8 @@ public class AzBone {
 
     private boolean hidden;
 
+    private boolean lodHidden;
+
     private boolean childrenHidden = false;
 
     private final Vector3f pivot;
@@ -178,6 +180,16 @@ public class AzBone {
 
     public void setChildrenHidden(boolean hideChildren) {
         this.childrenHidden = hideChildren;
+    }
+
+    /** Returns true if this bone was hidden by the LOD system (not by the model or other code). */
+    public boolean getLodHidden() {
+        return lodHidden;
+    }
+
+    /** Marks whether this bone was hidden by the LOD system. */
+    public void setLodHidden(boolean lodHidden) {
+        this.lodHidden = lodHidden;
     }
 
     public float getPivotX() {
@@ -404,6 +416,7 @@ public class AzBone {
 
         // Copy basic flags
         copy.hidden = this.hidden;
+        copy.lodHidden = this.lodHidden;
         copy.childrenHidden = this.childrenHidden;
 
         // Copy transforms
@@ -442,11 +455,11 @@ public class AzBone {
     }
 
     public int hashCode() {
-        return Objects.hash(
-            getName(),
-            (getParent() != null ? getParent().getName() : 0),
-            getCubes().size(),
-            getChildBones().size()
-        );
+        // Same inputs as before, without the varargs array Objects.hash allocates on every call.
+        var result = 31 + Objects.hashCode(getName());
+        result = 31 * result + (getParent() != null ? Objects.hashCode(getParent().getName()) : 0);
+        result = 31 * result + getCubes().size();
+        result = 31 * result + getChildBones().size();
+        return result;
     }
 }

@@ -23,12 +23,15 @@ import com.blib.api.client.render.v1.entity.model.AzEntityModelRenderer;
 import com.blib.api.client.render.v1.entity.pipeline.AzEntityRendererPipeline;
 import com.blib.api.client.render.v1.entity.pipeline.AzEntityRendererPipelineContext;
 import com.blib.api.client.render.v1.layer.AzRenderLayer;
+import com.blib.api.client.render.v1.lod.AzLodConfig;
 
 public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<UUID, T> {
 
     private final Function<T, Float> deathMaxRotationProvider;
 
     private final Function<T, Float> shadowRadius;
+
+    private final AzLodConfig lodConfig;
 
     private AzEntityRendererConfig(
         Supplier<AzAnimator<UUID, T>> animatorProvider,
@@ -46,9 +49,10 @@ public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<U
         Function<T, Float> scaleWidth,
         BiFunction<AzRendererPipeline<UUID, T>, AzLayerRenderer<UUID, T>, AzModelRenderer<UUID, T>> modelRendererProvider,
         Function<AzRendererPipeline<UUID, T>, AzRendererPipelineContext<UUID, T>> pipelineContextFunction,
-        Function<AzBone, ResourceLocation> boneTextureOverrideProvider,
-        Function<AzBone, RenderType> boneRenderTypeOverrideProvider,
-        BoneVisibilityFilter<T> boneVisibilityFilter
+        BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider,
+        BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider,
+        BoneVisibilityFilter<T> boneVisibilityFilter,
+        AzLodConfig lodConfig
     ) {
         super(
             animatorProvider,
@@ -70,6 +74,15 @@ public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<U
         );
         this.deathMaxRotationProvider = deathMaxRotationProvider;
         this.shadowRadius = shadowRadius;
+        this.lodConfig = lodConfig != null ? lodConfig : AzLodConfig.DISABLED;
+    }
+
+    /**
+     * The distance-based LOD rules for this renderer. {@link AzLodConfig#DISABLED} unless set with
+     * {@link Builder#withLodConfig(AzLodConfig)}.
+     */
+    public AzLodConfig lodConfig() {
+        return lodConfig;
     }
 
     public float getDeathMaxRotation(T entity) {
@@ -98,6 +111,8 @@ public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<U
 
         private Function<T, Float> deathMaxRotationProvider;
 
+        protected AzLodConfig lodConfig = AzLodConfig.DISABLED;
+
         protected Function<T, Float> shadowRadius;
 
         public Builder(
@@ -123,8 +138,22 @@ public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<U
         }
 
         @Override
+        public Builder<T> setBoneRenderTypeOverrideProvider(
+            BiFunction<@Nullable T, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider
+        ) {
+            return (Builder<T>) super.setBoneRenderTypeOverrideProvider(boneRenderTypeOverrideProvider);
+        }
+
+        @Override
         public Builder<T> setBoneTextureOverrideProvider(
             Function<AzBone, ResourceLocation> boneTextureOverrideProvider
+        ) {
+            return (Builder<T>) super.setBoneTextureOverrideProvider(boneTextureOverrideProvider);
+        }
+
+        @Override
+        public Builder<T> setBoneTextureOverrideProvider(
+            BiFunction<@Nullable T, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider
         ) {
             return (Builder<T>) super.setBoneTextureOverrideProvider(boneTextureOverrideProvider);
         }
@@ -244,6 +273,15 @@ public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<U
             return this;
         }
 
+        /**
+         * Opts this renderer into distance-based LOD. Off ({@link AzLodConfig#DISABLED}) by default;
+         * {@link AzLodConfig#DEFAULT} is a reasonable starting point.
+         */
+        public Builder<T> withLodConfig(AzLodConfig lodConfig) {
+            this.lodConfig = lodConfig != null ? lodConfig : AzLodConfig.DISABLED;
+            return this;
+        }
+
         @Override
         public AzEntityRendererConfig<T> build() {
             var baseConfig = super.build();
@@ -266,7 +304,8 @@ public class AzEntityRendererConfig<T extends Entity> extends AzRendererConfig<U
                 baseConfig::pipelineContext,
                 baseConfig::boneTextureOverrideProvider,
                 baseConfig::boneRenderTypeOverrideProvider,
-                baseConfig.boneVisibilityFilter()
+                baseConfig.boneVisibilityFilter(),
+                lodConfig
             );
         }
     }

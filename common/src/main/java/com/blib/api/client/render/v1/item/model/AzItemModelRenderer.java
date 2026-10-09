@@ -22,6 +22,10 @@ public class AzItemModelRenderer extends AzModelRenderer<UUID, ItemStack> {
 
     protected final AzItemRendererPipeline itemRendererPipeline;
 
+    private final Matrix4f scratchPoseState = new Matrix4f();
+
+    private final Matrix4f scratchMatrix = new Matrix4f();
+
     public AzItemModelRenderer(
         AzItemRendererPipeline itemRendererPipeline,
         AzLayerRenderer<UUID, ItemStack> layerRenderer
@@ -32,7 +36,7 @@ public class AzItemModelRenderer extends AzModelRenderer<UUID, ItemStack> {
 
     @Override
     public void render(AzRendererPipelineContext<UUID, ItemStack> context, boolean isReRender) {
-        if (!isReRender) {
+        if (!isReRender || context.applyAnimationOnReRender()) {
             var animatable = context.animatable();
             var animator = itemRendererPipeline.getRenderer().getAnimator();
 
@@ -43,7 +47,7 @@ public class AzItemModelRenderer extends AzModelRenderer<UUID, ItemStack> {
 
         var poseStack = context.poseStack();
 
-        itemRendererPipeline.setModelRenderTranslations(new Matrix4f(poseStack.last().pose()));
+        itemRendererPipeline.getModelRenderTranslations().set(poseStack.last().pose());
 
         super.render(context, isReRender);
     }
@@ -83,14 +87,10 @@ public class AzItemModelRenderer extends AzModelRenderer<UUID, ItemStack> {
             bone.setScaleZ(initialSnapshot.getScaleZ());
         }
 
-        poseStack.pushPose();
-
-        var animator = itemRendererPipeline.getRenderer().getAnimator();
+        // Check if the bone is an arm bone and the first person mod is loaded (it has its own arm system for items)
+        var isArmBone = AzItemArmRenderUtil.isArmBone(bone) && !BLibAPI.isModLoaded("firstperson");
+        var animator = isArmBone ? itemRendererPipeline.getRenderer().getAnimator() : null;
         var isAnimationPlaying = false;
-        // Check if the first-person mod is loaded as it has its own arm system for items
-        var firstPerson = BLibAPI.isModLoaded("firstperson");
-        // Check if the bone is an arm bone and the first person mod is loaded
-        var isArmBone = AzItemArmRenderUtil.isArmBone(bone) && !firstPerson;
 
         if (animator != null) {
             // ⚠⚠ "PLAYING" HERE MEANS THE TRACK HAS AN ANIMATION, NOT THAT ITS STATE MACHINE IS IN THE PLAY STATE.
@@ -117,36 +117,44 @@ public class AzItemModelRenderer extends AzModelRenderer<UUID, ItemStack> {
 
         if (bone.isTrackingMatrices()) {
             var animatable = context.animatable();
-            var poseState = new Matrix4f(poseStack.last().pose());
-            var localMatrix = RenderUtil.invertAndMultiplyMatrices(
-                poseState,
-                itemRendererPipeline.getItemRenderTranslations()
-            );
+            var poseState = scratchPoseState.set(poseStack.last().pose());
 
             bone.setModelSpaceMatrix(
-                RenderUtil.invertAndMultiplyMatrices(poseState, itemRendererPipeline.getModelRenderTranslations())
+                RenderUtil.invertAndMultiplyMatrices(
+                    poseState,
+                    itemRendererPipeline.getModelRenderTranslations(),
+                    scratchMatrix
+                )
+            );
+
+            var localMatrix = RenderUtil.invertAndMultiplyMatrices(
+                poseState,
+                itemRendererPipeline.getItemRenderTranslations(),
+                scratchMatrix
             );
             bone.setLocalSpaceMatrix(
-                RenderUtil.translateMatrix(localMatrix, getRenderOffset(animatable, 1).toVector3f())
+                RenderUtil.translateMatrixInPlace(localMatrix, getRenderOffset(animatable, 1).toVector3f())
             );
         }
 
         context.setVertexConsumer(getOrRefreshRenderBuffer(isReRender, context, bone));
 
-        super.renderRecursively(context, bone, isReRender);
-
-        if (shouldFreezeTransforms) {
-            bone.setPosX(origPosX);
-            bone.setPosY(origPosY);
-            bone.setPosZ(origPosZ);
-            bone.setRotX(origRotX);
-            bone.setRotY(origRotY);
-            bone.setRotZ(origRotZ);
-            bone.setScaleX(origScaleX);
-            bone.setScaleY(origScaleY);
-            bone.setScaleZ(origScaleZ);
+        try {
+            // The base class saves and restores the pose around the bone, so no pushPose here.
+            super.renderRecursively(context, bone, isReRender);
+        } finally {
+            if (shouldFreezeTransforms) {
+                bone.setPosX(origPosX);
+                bone.setPosY(origPosY);
+                bone.setPosZ(origPosZ);
+                bone.setRotX(origRotX);
+                bone.setRotY(origRotY);
+                bone.setRotZ(origRotZ);
+                bone.setScaleX(origScaleX);
+                bone.setScaleY(origScaleY);
+                bone.setScaleZ(origScaleZ);
+            }
         }
-        poseStack.popPose();
     }
 
     public Vec3 getRenderOffset(ItemStack itemStack, float f) {

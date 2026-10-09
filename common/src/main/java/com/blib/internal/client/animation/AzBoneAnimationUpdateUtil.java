@@ -1,18 +1,26 @@
 package com.blib.internal.client.animation;
 
 import com.blib.api.client.animation.v1.track.AzBlendMode;
-import com.blib.api.client.model.v1.AzBone;
+import com.blib.internal.client.animation.track.keyframe.AzBoneAnimationQueue;
 import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.easing.AzEasingUtil;
-import com.blib.internal.client.animation.track.keyframe.AzBoneAnimationQueue;
+import com.blib.api.client.model.v1.AzBone;
 import com.blib.internal.client.model.AzBoneSnapshot;
 
+/**
+ * Applies a track's animation values for this frame to its bones.
+ * <p>
+ * Tracks are applied in registration order. Each one combines its pose with the bone's current value: whatever an
+ * earlier track wrote to that channel this frame, or the bind pose if none did.
+ * <ul>
+ * <li>{@link AzBlendMode#OVERRIDE}: blends toward the pose by the track's weight. At weight 1 the pose is written
+ * as-is, so the last track to animate a channel wins, exactly as before blending existed.</li>
+ * <li>{@link AzBlendMode#ADDITIVE}: adds the pose's offset from the bind pose (scale: multiplies by its ratio to the
+ * bind scale), scaled by the weight.</li>
+ * </ul>
+ * At weight 0 the track leaves the bone untouched.
+ */
 public class AzBoneAnimationUpdateUtil {
-
-    // AzureLib 3.1.13 layering. The original four-argument methods are kept and route to weight 1 / OVERRIDE, which
-    // takes exactly the old path: the blend block below runs only for a weight under 1 or ADDITIVE, so an unlayered
-    // track writes the same values as before. The frame number lets a later layer blend over what an earlier layer
-    // wrote this frame instead of over the bind pose.
 
     public static void updatePositions(
         AzBoneAnimationQueue boneAnimation,
@@ -20,7 +28,16 @@ public class AzBoneAnimationUpdateUtil {
         AzEasingType easingType,
         AzBoneSnapshot snapshot
     ) {
-        updatePositions(boneAnimation, bone, easingType, bone.getInitialAzSnapshot(), snapshot, 1, AzBlendMode.OVERRIDE, -1);
+        updatePositions(
+            boneAnimation,
+            bone,
+            easingType,
+            bone.getInitialAzSnapshot(),
+            snapshot,
+            1,
+            AzBlendMode.OVERRIDE,
+            -1
+        );
     }
 
     public static void updatePositions(
@@ -33,24 +50,24 @@ public class AzBoneAnimationUpdateUtil {
         AzBlendMode blendMode,
         long frame
     ) {
-        var posXPoint = boneAnimation.positionXQueue().poll();
-        var posYPoint = boneAnimation.positionYQueue().poll();
-        var posZPoint = boneAnimation.positionZQueue().poll();
+        var posXPoint = boneAnimation.pollPosX();
+        var posYPoint = boneAnimation.pollPosY();
+        var posZPoint = boneAnimation.pollPosZ();
 
         if (posXPoint == null || posYPoint == null || posZPoint == null || weight <= 0) {
             return;
         }
 
-        var x = (float) AzEasingUtil.lerpWithOverride(posXPoint, easingType);
-        var y = (float) AzEasingUtil.lerpWithOverride(posYPoint, easingType);
-        var z = (float) AzEasingUtil.lerpWithOverride(posZPoint, easingType);
+        float x = (float) AzEasingUtil.lerpWithOverride(posXPoint, easingType);
+        float y = (float) AzEasingUtil.lerpWithOverride(posYPoint, easingType);
+        float z = (float) AzEasingUtil.lerpWithOverride(posZPoint, easingType);
 
         if (blendMode == AzBlendMode.ADDITIVE || weight < 1) {
-            var layered = snapshot.isPositionWrittenInFrame(frame);
-            var w = (float) weight;
-            var baseX = layered ? bone.getPosX() : initialSnapshot.getOffsetX();
-            var baseY = layered ? bone.getPosY() : initialSnapshot.getOffsetY();
-            var baseZ = layered ? bone.getPosZ() : initialSnapshot.getOffsetZ();
+            boolean layered = snapshot.isPositionWrittenInFrame(frame);
+            float w = (float) weight;
+            float baseX = layered ? bone.getPosX() : initialSnapshot.getOffsetX();
+            float baseY = layered ? bone.getPosY() : initialSnapshot.getOffsetY();
+            float baseZ = layered ? bone.getPosZ() : initialSnapshot.getOffsetZ();
 
             if (blendMode == AzBlendMode.ADDITIVE) {
                 x = baseX + (x - initialSnapshot.getOffsetX()) * w;
@@ -92,26 +109,26 @@ public class AzBoneAnimationUpdateUtil {
         AzBlendMode blendMode,
         long frame
     ) {
-        var rotXPoint = boneAnimation.rotationXQueue().poll();
-        var rotYPoint = boneAnimation.rotationYQueue().poll();
-        var rotZPoint = boneAnimation.rotationZQueue().poll();
+        var rotXPoint = boneAnimation.pollRotX();
+        var rotYPoint = boneAnimation.pollRotY();
+        var rotZPoint = boneAnimation.pollRotZ();
 
         if (rotXPoint == null || rotYPoint == null || rotZPoint == null || weight <= 0) {
             return;
         }
 
         // Keyframe rotations are offsets from the bind rotation.
-        var x = (float) AzEasingUtil.lerpWithOverride(rotXPoint, easingType) + initialSnapshot.getRotX();
-        var y = (float) AzEasingUtil.lerpWithOverride(rotYPoint, easingType) + initialSnapshot.getRotY();
-        var z = (float) AzEasingUtil.lerpWithOverride(rotZPoint, easingType) + initialSnapshot.getRotZ();
+        float x = (float) AzEasingUtil.lerpWithOverride(rotXPoint, easingType) + initialSnapshot.getRotX();
+        float y = (float) AzEasingUtil.lerpWithOverride(rotYPoint, easingType) + initialSnapshot.getRotY();
+        float z = (float) AzEasingUtil.lerpWithOverride(rotZPoint, easingType) + initialSnapshot.getRotZ();
 
         if (blendMode == AzBlendMode.ADDITIVE || weight < 1) {
             // Per-axis Euler blending, consistent with how keyframes themselves interpolate.
-            var layered = snapshot.isRotationWrittenInFrame(frame);
-            var w = (float) weight;
-            var baseX = layered ? bone.getRotX() : initialSnapshot.getRotX();
-            var baseY = layered ? bone.getRotY() : initialSnapshot.getRotY();
-            var baseZ = layered ? bone.getRotZ() : initialSnapshot.getRotZ();
+            boolean layered = snapshot.isRotationWrittenInFrame(frame);
+            float w = (float) weight;
+            float baseX = layered ? bone.getRotX() : initialSnapshot.getRotX();
+            float baseY = layered ? bone.getRotY() : initialSnapshot.getRotY();
+            float baseZ = layered ? bone.getRotZ() : initialSnapshot.getRotZ();
 
             if (blendMode == AzBlendMode.ADDITIVE) {
                 x = baseX + (x - initialSnapshot.getRotX()) * w;
@@ -139,7 +156,16 @@ public class AzBoneAnimationUpdateUtil {
         AzEasingType easingType,
         AzBoneSnapshot snapshot
     ) {
-        updateScale(boneAnimation, bone, easingType, bone.getInitialAzSnapshot(), snapshot, 1, AzBlendMode.OVERRIDE, -1);
+        updateScale(
+            boneAnimation,
+            bone,
+            easingType,
+            bone.getInitialAzSnapshot(),
+            snapshot,
+            1,
+            AzBlendMode.OVERRIDE,
+            -1
+        );
     }
 
     public static void updateScale(
@@ -152,24 +178,24 @@ public class AzBoneAnimationUpdateUtil {
         AzBlendMode blendMode,
         long frame
     ) {
-        var scaleXPoint = boneAnimation.scaleXQueue().poll();
-        var scaleYPoint = boneAnimation.scaleYQueue().poll();
-        var scaleZPoint = boneAnimation.scaleZQueue().poll();
+        var scaleXPoint = boneAnimation.pollSclX();
+        var scaleYPoint = boneAnimation.pollSclY();
+        var scaleZPoint = boneAnimation.pollSclZ();
 
         if (scaleXPoint == null || scaleYPoint == null || scaleZPoint == null || weight <= 0) {
             return;
         }
 
-        var x = (float) AzEasingUtil.lerpWithOverride(scaleXPoint, easingType);
-        var y = (float) AzEasingUtil.lerpWithOverride(scaleYPoint, easingType);
-        var z = (float) AzEasingUtil.lerpWithOverride(scaleZPoint, easingType);
+        float x = (float) AzEasingUtil.lerpWithOverride(scaleXPoint, easingType);
+        float y = (float) AzEasingUtil.lerpWithOverride(scaleYPoint, easingType);
+        float z = (float) AzEasingUtil.lerpWithOverride(scaleZPoint, easingType);
 
         if (blendMode == AzBlendMode.ADDITIVE || weight < 1) {
-            var layered = snapshot.isScaleWrittenInFrame(frame);
-            var w = (float) weight;
-            var baseX = layered ? bone.getScaleX() : initialSnapshot.getScaleX();
-            var baseY = layered ? bone.getScaleY() : initialSnapshot.getScaleY();
-            var baseZ = layered ? bone.getScaleZ() : initialSnapshot.getScaleZ();
+            boolean layered = snapshot.isScaleWrittenInFrame(frame);
+            float w = (float) weight;
+            float baseX = layered ? bone.getScaleX() : initialSnapshot.getScaleX();
+            float baseY = layered ? bone.getScaleY() : initialSnapshot.getScaleY();
+            float baseZ = layered ? bone.getScaleZ() : initialSnapshot.getScaleZ();
 
             if (blendMode == AzBlendMode.ADDITIVE) {
                 // Scale multiplies: a keyframe of 1.2 over a bind scale of 1 grows whatever is underneath by 20%.
@@ -196,6 +222,7 @@ public class AzBoneAnimationUpdateUtil {
         return from + (to - from) * weight;
     }
 
+    /** A scale keyframe relative to the bind scale; a bind scale of 0 has no meaningful ratio, so use the value. */
     private static float ratio(float value, float bindScale) {
         return bindScale == 0 ? value : value / bindScale;
     }

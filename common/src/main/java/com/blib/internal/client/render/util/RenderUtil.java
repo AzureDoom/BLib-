@@ -26,7 +26,7 @@ import com.blib.mod.BLib;
 
 public class RenderUtil {
 
-    private static final Matrix4f TRANSLATE_MATRIX_CACHE = new Matrix4f();
+    private static final Matrix4f INVERT_SCRATCH = new Matrix4f();
 
     private static final Quaternionf X_QUATERNION_CACHE = new Quaternionf();
 
@@ -43,14 +43,14 @@ public class RenderUtil {
         float rotY = bone.getRotY();
         float rotZ = bone.getRotZ();
 
-        if (rotZ != 0)
-            poseStack.mulPose(Z_QUATERNION_CACHE.rotationXYZ(0f, 0f, rotZ));
+        if (rotX == 0 && rotY == 0 && rotZ == 0)
+            return;
 
-        if (rotY != 0)
-            poseStack.mulPose(Y_QUATERNION_CACHE.rotationXYZ(0f, rotY, 0f));
-
-        if (rotX != 0)
-            poseStack.mulPose(X_QUATERNION_CACHE.rotationXYZ(rotX, 0f, 0f));
+        // Same Z, then Y, then X order as three mulPose calls, in one pass over each matrix. A pure rotation keeps the
+        // normal matrix orthonormal, so nothing needs renormalising.
+        var last = poseStack.last();
+        last.pose().rotateZYX(rotZ, rotY, rotX);
+        last.normal().rotateZYX(rotZ, rotY, rotX);
     }
 
     public static void rotateMatrixAroundCube(PoseStack poseStack, GeoCube cube) {
@@ -107,57 +107,60 @@ public class RenderUtil {
     }
 
     public static void applyCubeInflation(PoseStack poseStack, GeoCube cube, float inflate) {
+        applyCubeInflation(poseStack.last().pose(), cube, inflate);
+    }
+
+    /**
+     * Scales {@code pose} in place around the centre of {@code cube}'s vertex bounds so each side grows by
+     * {@code inflate}. Matrix form of {@link #applyCubeInflation(PoseStack, GeoCube, float)}, used by the model
+     * renderer now that cube transforms are applied straight to a scratch matrix instead of the pose stack.
+     *
+     * @return {@code true} if the matrix was changed
+     */
+    public static boolean applyCubeInflation(Matrix4f pose, GeoCube cube, float inflate) {
         var size = cube.size();
-        var sizeX = (float) size.x() / 16f;
-        var sizeY = (float) size.y() / 16f;
-        var sizeZ = (float) size.z() / 16f;
 
-        if (sizeX <= 0 && sizeY <= 0 && sizeZ <= 0) {
-            return;
+        if (size.x() <= 0 && size.y() <= 0 && size.z() <= 0) {
+            return false;
         }
 
-        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
-        float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
+        // Bounds are baked into the cube at load; this used to rescan every vertex on every call.
+        var bounds = cube.bounds();
 
-        for (var quad : cube.quads()) {
-            if (quad == null)
-                continue;
-
-            for (var vertex : quad.vertices()) {
-                var pos = vertex.position();
-                minX = Math.min(minX, pos.x());
-                maxX = Math.max(maxX, pos.x());
-                minY = Math.min(minY, pos.y());
-                maxY = Math.max(maxY, pos.y());
-                minZ = Math.min(minZ, pos.z());
-                maxZ = Math.max(maxZ, pos.z());
-            }
+        if (bounds.isEmpty()) {
+            return false;
         }
 
-        var centerX = (minX + maxX) / 2f;
-        var centerY = (minY + maxY) / 2f;
-        var centerZ = (minZ + maxZ) / 2f;
-
-        var extentX = (maxX - minX) / 2f;
-        var extentY = (maxY - minY) / 2f;
-        var extentZ = (maxZ - minZ) / 2f;
+        var extentX = bounds.extentX();
+        var extentY = bounds.extentY();
+        var extentZ = bounds.extentZ();
 
         var scaleX = extentX > 0 ? (extentX + inflate) / extentX : 1f;
         var scaleY = extentY > 0 ? (extentY + inflate) / extentY : 1f;
         var scaleZ = extentZ > 0 ? (extentZ + inflate) / extentZ : 1f;
 
-        poseStack.translate(centerX, centerY, centerZ);
-        poseStack.scale(scaleX, scaleY, scaleZ);
-        poseStack.translate(-centerX, -centerY, -centerZ);
+        pose.translate(bounds.centerX(), bounds.centerY(), bounds.centerZ())
+            .scale(scaleX, scaleY, scaleZ)
+            .translate(-bounds.centerX(), -bounds.centerY(), -bounds.centerZ());
+        return true;
     }
 
+    /**
+     * Inverts {@code inputMatrix} and multiplies it by {@code baseMatrix}, returning the result as a new
+     * {@link Matrix4f}. Neither argument is modified.
+     */
     public static Matrix4f invertAndMultiplyMatrices(Matrix4f baseMatrix, Matrix4f inputMatrix) {
-        inputMatrix = new Matrix4f(inputMatrix);
+        return invertAndMultiplyMatrices(baseMatrix, inputMatrix, new Matrix4f());
+    }
 
-        inputMatrix.invert();
-        inputMatrix.mul(baseMatrix);
-
-        return inputMatrix;
+    /**
+     * Allocation-free form of {@link #invertAndMultiplyMatrices(Matrix4f, Matrix4f)}: writes
+     * {@code inverse(inputMatrix) * baseMatrix} into {@code dest} and returns it. {@code dest} may not be
+     * {@code baseMatrix}. Render thread only (uses a shared scratch matrix).
+     */
+    public static Matrix4f invertAndMultiplyMatrices(Matrix4f baseMatrix, Matrix4f inputMatrix, Matrix4f dest) {
+        INVERT_SCRATCH.set(inputMatrix).invert();
+        return INVERT_SCRATCH.mul(baseMatrix, dest);
     }
 
     public static void faceRotation(PoseStack poseStack, Entity animatable, float partialTick) {
@@ -165,9 +168,24 @@ public class RenderUtil {
         poseStack.mulPose(Axis.ZP.rotationDegrees(Mth.lerp(partialTick, animatable.xRotO, animatable.getXRot())));
     }
 
+    /**
+     * Returns a new {@link Matrix4f} equal to {@code matrix} with {@code vector} added to its translation (a
+     * world-space translation: {@code T(vector) * matrix}). The original matrix is not modified.
+     * <p>
+     * This used to add an identity-plus-translation matrix to {@code matrix}, which moved the translation correctly
+     * but also added 1 to every diagonal entry, corrupting the rotation/scale part (and the {@code w} of transformed
+     * points). It now only touches the translation.
+     */
     public static Matrix4f translateMatrix(Matrix4f matrix, Vector3f vector) {
-        TRANSLATE_MATRIX_CACHE.m30(vector.x).m31(vector.y).m32(vector.z);
-        return matrix.add(TRANSLATE_MATRIX_CACHE);
+        return new Matrix4f(matrix).translateLocal(vector);
+    }
+
+    /**
+     * In-place form of {@link #translateMatrix}: adds {@code vector} to {@code matrix}'s translation and returns it. Use
+     * this when you own the matrix, to avoid the extra allocation.
+     */
+    public static Matrix4f translateMatrixInPlace(Matrix4f matrix, Vector3f vector) {
+        return matrix.translateLocal(vector);
     }
 
     @Nullable
@@ -222,14 +240,29 @@ public class RenderUtil {
         to.updateRotation(-from.xRot, -from.yRot, from.zRot);
     }
 
+    /**
+     * If a {@link GeoCube} is a 2d plane the quad's normal is inverted in an intersecting plane, which can cause issues
+     * with shaders and other lighting tasks. This performs a pseudo-ABS function to help resolve some of those issues.
+     */
     public static void fixInvertedFlatCube(GeoCube cube, Vector3f normal) {
-        if (normal.x() < 0 && (cube.size().y() == 0 || cube.size().z() == 0))
+        fixInvertedFlatCube(cube.normalFlips(), normal);
+    }
+
+    /**
+     * {@link #fixInvertedFlatCube(GeoCube, Vector3f)} with the cube's flip flags already worked out; see
+     * {@link GeoCube#normalFlips()}.
+     */
+    public static void fixInvertedFlatCube(int normalFlips, Vector3f normal) {
+        if (normalFlips == 0)
+            return;
+
+        if (normal.x() < 0 && (normalFlips & GeoCube.FLIP_X) != 0)
             normal.mul(-1, 1, 1);
 
-        if (normal.y() < 0 && (cube.size().x() == 0 || cube.size().z() == 0))
+        if (normal.y() < 0 && (normalFlips & GeoCube.FLIP_Y) != 0)
             normal.mul(1, -1, 1);
 
-        if (normal.z() < 0 && (cube.size().x() == 0 || cube.size().y() == 0))
+        if (normal.z() < 0 && (normalFlips & GeoCube.FLIP_Z) != 0)
             normal.mul(1, 1, -1);
     }
 

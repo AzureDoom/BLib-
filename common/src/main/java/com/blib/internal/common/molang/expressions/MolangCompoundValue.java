@@ -12,8 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-import com.blib.internal.common.molang.LazyVariable;
 import com.blib.internal.common.molang.math.IValue;
+import com.blib.internal.common.molang.LazyVariable;
 
 /**
  * An extension of the {@link MolangValue} class, allowing for compound expressions.

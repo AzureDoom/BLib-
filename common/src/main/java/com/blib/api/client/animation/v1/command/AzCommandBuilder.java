@@ -19,6 +19,7 @@ import com.blib.internal.client.animation.dispatch.command.action.impl.AzResumeA
 import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetAnimationSpeedAction;
 import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetEasingTypeAction;
 import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetFreezeTickAction;
+import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetRepeatTimesAction;
 import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetReverseAction;
 import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetStartTickOffsetAction;
 import com.blib.internal.client.animation.dispatch.command.action.impl.AzSetTransitionSpeedAction;
@@ -132,7 +133,7 @@ public class AzCommandBuilder<T> {
     }
 
     /**
-     * Sets the targeted track's layer weight at once (AzureLib 3.1.13 layering).
+     * Sets the targeted track's layer weight at once (BLib 3.1.13 layering).
      *
      * @param target the track(s)
      * @param weight 0 (no effect) to 1 (full effect)
@@ -153,7 +154,7 @@ public class AzCommandBuilder<T> {
     }
 
     /**
-     * Fades the targeted track's layer weight over time (AzureLib 3.1.13 layering).
+     * Fades the targeted track's layer weight over time (BLib 3.1.13 layering).
      *
      * @param target    the track(s)
      * @param weight    the weight to reach, 0 to 1
@@ -193,6 +194,19 @@ public class AzCommandBuilder<T> {
 
     public AzCommandBuilder<T> setFreezeTickOffset(AzTrackHandle<? super T> handle, double freezeTickOffset) {
         return setFreezeTickOffset(AzTarget.track(handle), freezeTickOffset);
+    }
+
+    /**
+     * Sets the total number of plays for animations using {@code AzPlayBehaviors.REPEAT_X_TIMES} on the target. Values
+     * of 1 or less fall back to the animation file's {@code repeat_times}.
+     */
+    public AzCommandBuilder<T> setRepeatAmount(AzTarget target, double repeatXTimes) {
+        actions.add(new AzSetRepeatTimesAction<>(target, repeatXTimes));
+        return this;
+    }
+
+    public AzCommandBuilder<T> setRepeatAmount(AzTrackHandle<? super T> handle, double repeatXTimes) {
+        return setRepeatAmount(AzTarget.track(handle), repeatXTimes);
     }
 
     public AzCommandBuilder<T> setReverseAnimation(AzTarget target, boolean hasReverse) {
@@ -240,7 +254,7 @@ public class AzCommandBuilder<T> {
     }
 
     /**
-     * Plays a reusable {@link com.blib.api.client.animation.v1.command.sequence.AzSequence} (AzureLib 3.1.13). Its
+     * Plays a reusable {@link com.blib.api.client.animation.v1.command.sequence.AzSequence} (BLib 3.1.13). Its
      * timed events are delivered by an AzSequencePlayer, not by the command itself.
      *
      * @param target   the track(s) to play it on

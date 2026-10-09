@@ -16,6 +16,7 @@ import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.easing.AzEasingTypeLoader;
 import com.blib.internal.client.animation.easing.AzEasingTypes;
 import com.blib.internal.client.animation.primitive.AzBakedAnimation;
+import com.blib.internal.client.animation.primitive.AzAnimationDefaults;
 import com.blib.internal.client.animation.primitive.AzBakedAnimations;
 import com.blib.internal.client.animation.primitive.AzKeyframes;
 import com.blib.internal.client.animation.track.keyframe.AzBoneAnimation;
@@ -161,27 +162,7 @@ public class AzBakedAnimationsJsonDeserializer implements JsonDeserializer<AzBak
 
         JsonObject animationJsonList = jsonObj.getAsJsonObject("animations");
         JsonArray includeListJSONObj = jsonObj.getAsJsonArray("includes");
-        Map<String, ResourceLocation> includes = null;
-        if (includeListJSONObj != null) {
-            includes = new Object2ObjectOpenHashMap<>(includeListJSONObj.size());
-            for (JsonElement entry : includeListJSONObj.asList()) {
-                JsonObject obj = entry.getAsJsonObject();
-                ResourceLocation fileId = ResourceLocation.parse(obj.get("file_id").getAsString());
-                for (JsonElement animName : obj.getAsJsonArray("animations")) {
-                    String ani = animName.getAsString();
-                    if (includes.containsKey(ani)) {
-                        BLib.LOGGER.warn(
-                            "Animation {} is already included! File already including: {}  File trying to include from again: {}",
-                            ani,
-                            includes.get(ani),
-                            fileId
-                        );
-                    } else {
-                        includes.put(ani, fileId);
-                    }
-                }
-            }
-        }
+        Map<String, ResourceLocation> includes = readIncludes(includeListJSONObj);
 
         Map<String, AzBakedAnimation> animations = new Object2ObjectOpenHashMap<>(animationJsonList.size());
 
@@ -192,12 +173,83 @@ public class AzBakedAnimationsJsonDeserializer implements JsonDeserializer<AzBak
                     bakeAnimation(entry.getKey(), entry.getValue().getAsJsonObject(), context)
                 );
             } catch (MolangException ex) {
-                BLib.LOGGER.error("Unable to parse animation: {}", entry.getKey());
-                ex.printStackTrace();
+                BLib.LOGGER.error("Unable to parse animation '{}'", entry.getKey(), ex);
             }
         }
 
         return new AzBakedAnimations(animations, includes);
+    }
+
+    private static Map<String, ResourceLocation> readIncludes(JsonArray includeListJSONObj) {
+        if (includeListJSONObj == null || includeListJSONObj.isEmpty())
+            return null;
+
+        Map<String, ResourceLocation> includes = new Object2ObjectOpenHashMap<>(includeListJSONObj.size());
+
+        for (JsonElement entry : includeListJSONObj) {
+            if (!entry.isJsonObject()) {
+                BLib.LOGGER.warn("Skipping malformed include entry: {}", entry);
+                continue;
+            }
+
+            JsonObject obj = entry.getAsJsonObject();
+
+            if (!obj.has("file_id")) {
+                BLib.LOGGER.warn("Include entry is missing 'file_id': {}", obj);
+                continue;
+            }
+
+            if (!obj.has("animations") || !obj.get("animations").isJsonArray()) {
+                BLib.LOGGER.warn(
+                    "Include entry for file '{}' is missing a valid 'animations' array: {}",
+                    obj.get("file_id").getAsString(),
+                    obj
+                );
+                continue;
+            }
+
+            ResourceLocation fileId;
+            try {
+                fileId = ResourceLocation.parse(obj.get("file_id").getAsString());
+            } catch (Exception ex) {
+                BLib.LOGGER.warn(
+                    "Invalid include file_id '{}': {}",
+                    obj.get("file_id").getAsString(),
+                    ex.getMessage()
+                );
+                continue;
+            }
+
+            for (JsonElement animName : obj.getAsJsonArray("animations")) {
+                if (!animName.isJsonPrimitive() || !animName.getAsJsonPrimitive().isString()) {
+                    BLib.LOGGER.warn(
+                        "Skipping non-string animation name in include file {}: {}",
+                        fileId,
+                        animName
+                    );
+                    continue;
+                }
+
+                String ani = animName.getAsString();
+
+                if (ani.isBlank()) {
+                    BLib.LOGGER.warn("Skipping blank animation name in include file {}", fileId);
+                    continue;
+                }
+
+                ResourceLocation previous = includes.putIfAbsent(ani, fileId);
+                if (previous != null) {
+                    BLib.LOGGER.warn(
+                        "Animation '{}' is already included. First source: {}, duplicate source: {}",
+                        ani,
+                        previous,
+                        fileId
+                    );
+                }
+            }
+        }
+
+        return includes.isEmpty() ? null : includes;
     }
 
     private AzBakedAnimation bakeAnimation(
@@ -216,7 +268,10 @@ public class AzBakedAnimationsJsonDeserializer implements JsonDeserializer<AzBak
         if (length == -1)
             length = calculateAnimationLength(boneAnimations);
 
-        return new AzBakedAnimation(name, length, boneAnimations, keyframes);
+        // Playback defaults authored in the file (loop / repeat_times / freeze_at); commands can still override them.
+        var defaults = AzAnimationDefaults.fromJson(animationObj);
+
+        return new AzBakedAnimation(name, length, boneAnimations, keyframes, defaults);
     }
 
     private AzBoneAnimation[] bakeBoneAnimations(JsonObject bonesObj) throws MolangException {
@@ -279,13 +334,13 @@ public class AzBakedAnimationsJsonDeserializer implements JsonDeserializer<AzBak
             MolangValue rawYValue = MolangParser.parseJson(keyframeVector.get(1));
             MolangValue rawZValue = MolangParser.parseJson(keyframeVector.get(2));
             IValue xValue = isForRotation && rawXValue.isConstant()
-                ? new Constant(Math.toRadians(-rawXValue.get()))
+                ? Constant.of(Math.toRadians(-rawXValue.get()))
                 : rawXValue;
             IValue yValue = isForRotation && rawYValue.isConstant()
-                ? new Constant(Math.toRadians(-rawYValue.get()))
+                ? Constant.of(Math.toRadians(-rawYValue.get()))
                 : rawYValue;
             IValue zValue = isForRotation && rawZValue.isConstant()
-                ? new Constant(Math.toRadians(rawZValue.get()))
+                ? Constant.of(Math.toRadians(rawZValue.get()))
                 : rawZValue;
 
             JsonObject entryObj = element instanceof JsonObject obj ? obj : null;
@@ -295,7 +350,7 @@ public class AzBakedAnimationsJsonDeserializer implements JsonDeserializer<AzBak
             List<IValue> easingArgs = entryObj != null && entryObj.has("easingArgs")
                 ? JsonUtil.jsonArrayToList(
                     GsonHelper.getAsJsonArray(entryObj, "easingArgs"),
-                    ele -> new Constant(ele.getAsDouble())
+                    ele -> Constant.of(ele.getAsDouble())
                 )
                 : new ObjectArrayList<>();
 

@@ -17,7 +17,7 @@ import com.blib.internal.client.animation.dispatch.command.stage.AzAnimationStag
 import com.blib.internal.client.animation.property.AzAnimationStageProperties;
 
 /**
- * A reusable chain of animations with optional timed events - ported from AzureLib 3.1.13 and adapted to BLib's tracks.
+ * A reusable chain of animations with optional timed events - ported from BLib 3.1.13 and adapted to BLib's tracks.
  * <p>
  * Stages are added with {@link #play}, {@link #loop}, {@link #hold} or {@link #then(String, AzPlayBehavior)}, chain
  * style ({@code AzSequence.create().play("a").loop("b")}) or builder style ({@code AzSequence.builder()...build()}).
@@ -26,7 +26,7 @@ import com.blib.internal.client.animation.property.AzAnimationStageProperties;
  * <p>
  * Instances are immutable: every method returns a new sequence.
  * <p>
- * Note (as in AzureLib): event ticks are not scaled by animation speed, and the track's transition length is added
+ * Note (as in BLib): event ticks are not scaled by animation speed, and the track's transition length is added
  * before each stage on the client; allow for both when lining events up with keyframes.
  */
 public final class AzSequence {
@@ -35,6 +35,7 @@ public final class AzSequence {
 
     private static final Set<AzPlayBehavior> NON_FINISHING_BEHAVIORS = Set.of(
         AzPlayBehaviors.LOOP,
+        AzPlayBehaviors.PING_PONG,
         AzPlayBehaviors.HOLD_ON_LAST_FRAME,
         AzPlayBehaviors.FREEZE_ON_FRAME
     );
@@ -127,6 +128,24 @@ public final class AzSequence {
      * @param tick ticks from the start of the sequence
      * @return a new sequence with the event added
      */
+    /**
+     * Appends a stage that plays the animation the way its file says to (the {@code loop}, {@code repeat_times} and
+     * {@code freeze_at} set in Blockbench). Only add further stages after it if the file's behavior finishes.
+     */
+    public AzSequence authored(String animationName) {
+        return toBuilder().authored(animationName).build();
+    }
+
+    /** Appends a stage that plays the animation forward and back indefinitely; see {@link AzPlayBehaviors#PING_PONG}. */
+    public AzSequence pingPong(String animationName) {
+        return toBuilder().pingPong(animationName).build();
+    }
+
+    /** Appends a stage that plays the animation once, backward. */
+    public AzSequence playReversed(String animationName) {
+        return toBuilder().playReversed(animationName).build();
+    }
+
     public AzSequence event(String name, int tick) {
         return toBuilder().event(name, tick).build();
     }
@@ -306,6 +325,22 @@ public final class AzSequence {
          * @param tick ticks from the start of the sequence
          * @return this builder
          */
+        public Builder authored(String animationName) {
+            return then(animationName, AzPlayBehaviors.AS_AUTHORED);
+        }
+
+        public Builder pingPong(String animationName) {
+            return then(animationName, AzPlayBehaviors.PING_PONG);
+        }
+
+        /**
+         * Plays the animation once, backward. For other behaviors, use
+         * {@code then(name, behavior, p -> p.withShouldReverse(true))}.
+         */
+        public Builder playReversed(String animationName) {
+            return then(animationName, AzPlayBehaviors.PLAY_ONCE, properties -> properties.withShouldReverse(true));
+        }
+
         public Builder event(String name, int tick) {
             requireName(name, "Event name");
 

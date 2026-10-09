@@ -51,8 +51,8 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
         Predicate<ItemDisplayContext> shouldAnimateInContext,
         BiFunction<AzRendererPipeline<UUID, ItemStack>, AzLayerRenderer<UUID, ItemStack>, AzModelRenderer<UUID, ItemStack>> modelRendererProvider,
         Function<AzRendererPipeline<UUID, ItemStack>, AzRendererPipelineContext<UUID, ItemStack>> pipelineContextFunction,
-        Function<AzBone, ResourceLocation> boneTextureOverrideProvider,
-        Function<AzBone, RenderType> boneRenderTypeOverrideProvider,
+        BiFunction<@Nullable ItemStack, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider,
+        BiFunction<@Nullable ItemStack, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider,
         BoneVisibilityFilter<ItemStack> boneVisibilityFilter
     ) {
         super(
@@ -134,7 +134,21 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
         }
 
         @Override
+        public Builder setBoneRenderTypeOverrideProvider(
+            BiFunction<@Nullable ItemStack, AzBone, @Nullable RenderType> boneRenderTypeOverrideProvider
+        ) {
+            return (Builder) super.setBoneRenderTypeOverrideProvider(boneRenderTypeOverrideProvider);
+        }
+
+        @Override
         public Builder setBoneTextureOverrideProvider(Function<AzBone, ResourceLocation> boneTextureOverrideProvider) {
+            return (Builder) super.setBoneTextureOverrideProvider(boneTextureOverrideProvider);
+        }
+
+        @Override
+        public Builder setBoneTextureOverrideProvider(
+            BiFunction<@Nullable ItemStack, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider
+        ) {
             return (Builder) super.setBoneTextureOverrideProvider(boneTextureOverrideProvider);
         }
 
