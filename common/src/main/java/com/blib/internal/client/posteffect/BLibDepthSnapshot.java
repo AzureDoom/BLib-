@@ -46,6 +46,15 @@ public final class BLibDepthSnapshot {
 
     private static boolean failed;
 
+    /**
+     * Oct 9 - a failed allocation is retried after this many frames instead of disabling the snapshot for the whole
+     * session. See {@link #ensureTexture}.
+     */
+    private static final int RETRY_AFTER_FRAMES = 200;
+
+    /** Frames left before the next allocation attempt after a failure; 0 when not waiting. */
+    private static int retryCountdown;
+
     private BLibDepthSnapshot() {
         throw new UnsupportedOperationException();
     }
@@ -115,7 +124,11 @@ public final class BLibDepthSnapshot {
         // drawn. That is as true under Iris as without it: the depth was measured populated at 0.977-0.999 there across
         // a live session with a pack running.
         if (failed) {
-            return;
+            if (--retryCountdown > 0) {
+                return;
+            }
+
+            failed = false;
         }
 
         var mainTarget = Minecraft.getInstance().getMainRenderTarget();
@@ -161,6 +174,16 @@ public final class BLibDepthSnapshot {
 
         destroy();
 
+        // Oct 9 - DRAIN ERRORS OTHER CODE LEFT BEHIND FIRST. glGetError returns the OLDEST error anyone raised since it
+        // was last read, not ours. A tester's session (Complementary + Stellaris, which logs GL errors all session) hit
+        // "allocation failed (GL error 0x502)" - an error some other mod had left pending - and the snapshot was then
+        // switched off for the rest of the session. With no snapshot, the vision read a depth buffer holding only the
+        // hand: the whole thermal view came out one flat colour (the reported lime-green screen) and EM found no mobs.
+        // Reading the stale errors away first means the check below only sees errors from this allocation.
+        for (var drained = 0; drained < 16 && GL11.glGetError() != GL11.GL_NO_ERROR; drained++) {
+            // discard
+        }
+
         textureId = TextureUtil.generateTextureId();
 
         var previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
@@ -188,12 +211,17 @@ public final class BLibDepthSnapshot {
         if (error != GL11.GL_NO_ERROR) {
             BLib.LOGGER.error(
                 "[BLib] Depth snapshot texture allocation failed (GL error 0x{}); post effects will see the"
-                    + " post-hand-clear depth instead.",
+                    + " post-hand-clear depth until it is retried in a few seconds.",
                 Integer.toHexString(error)
             );
 
             destroy();
+
+            // Oct 9 - NOT PERMANENT ANY MORE. A real failure (out of video memory mid-resize, say) is usually
+            // temporary;
+            // the snapshot tries again after a short wait instead of leaving the vision broken until a restart.
             failed = true;
+            retryCountdown = RETRY_AFTER_FRAMES;
 
             return false;
         }

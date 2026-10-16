@@ -132,9 +132,8 @@ public record GeoCube(
     }
 
     /**
-     * A cube's rotation around its pivot, baked once at load:
-     * {@code pose = T(pivot) * Rz * Ry * Rx * T(-pivot)} and {@code normal = Rz * Ry * Rx}, matching the order the
-     * renderer used to apply them to the pose stack.
+     * A cube's rotation around its pivot, baked once at load: {@code pose = T(pivot) * Rz * Ry * Rx * T(-pivot)} and
+     * {@code normal = Rz * Ry * Rx}, matching the order the renderer used to apply them to the pose stack.
      *
      * @param pose     the cube-local transform, in model units (pixels / 16)
      * @param normal   the matching normal transform

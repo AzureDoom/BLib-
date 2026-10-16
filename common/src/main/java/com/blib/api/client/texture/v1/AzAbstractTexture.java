@@ -72,6 +72,8 @@ public abstract class AzAbstractTexture extends SimpleTexture {
                     .setShaderState(SHADER_STATE)
                     .setTextureState(textureState)
                     .setTransparencyState(TRANSPARENCY_STATE)
+                    // Oct 14 (AzureLib port: "enable lightmap state for emissive render types")
+                    .setLightmapState(RenderStateShard.LIGHTMAP)
                     .setOverlayState(new RenderStateShard.OverlayStateShard(true))
                     .setWriteMaskState(WRITE_MASK)
                     .createCompositeState(isGlowing)

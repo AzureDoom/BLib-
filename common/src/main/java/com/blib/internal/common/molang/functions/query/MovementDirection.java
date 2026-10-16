@@ -1,7 +1,7 @@
 package com.blib.internal.common.molang.functions.query;
 
-import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueryContext;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * {@code query.movement_direction(axis)}: the entity's normalized movement direction on the given axis.

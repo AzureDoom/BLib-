@@ -5,13 +5,12 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
-import com.blib.internal.client.animation.easing.AzEasingType;
-import com.blib.internal.client.animation.easing.AzEasingTypes;
 import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehavior;
 import com.blib.api.client.animation.v1.command.play_behavior.AzPlayBehaviors;
+import com.blib.internal.client.animation.easing.AzEasingType;
+import com.blib.internal.client.animation.easing.AzEasingTypes;
 
 public class AzAnimationStageProperties extends AzAnimationProperties {
-
 
     public static final AzAnimationStageProperties DEFAULT = new AzAnimationStageProperties(
         1D,

@@ -254,8 +254,8 @@ public class AzCommandBuilder<T> {
     }
 
     /**
-     * Plays a reusable {@link com.blib.api.client.animation.v1.command.sequence.AzSequence} (BLib 3.1.13). Its
-     * timed events are delivered by an AzSequencePlayer, not by the command itself.
+     * Plays a reusable {@link com.blib.api.client.animation.v1.command.sequence.AzSequence} (BLib 3.1.13). Its timed
+     * events are delivered by an AzSequencePlayer, not by the command itself.
      *
      * @param target   the track(s) to play it on
      * @param sequence the sequence

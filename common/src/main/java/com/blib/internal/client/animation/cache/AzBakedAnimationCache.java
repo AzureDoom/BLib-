@@ -1,6 +1,5 @@
 package com.blib.internal.client.animation.cache;
 
-import com.blib.internal.common.molang.MolangParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.jetbrains.annotations.Nullable;
@@ -16,6 +15,7 @@ import com.blib.internal.client.animation.primitive.AzBakedAnimations;
 import com.blib.internal.client.model.AzResourceCache;
 import com.blib.internal.common.io.ResourceFileLoader;
 import com.blib.internal.common.io.util.JsonUtil;
+import com.blib.internal.common.molang.MolangParser;
 
 /**
  * Caches baked animation files. Animations are loaded into a fresh map on the background executor, then published with
@@ -42,32 +42,32 @@ public class AzBakedAnimationCache extends AzResourceCache {
      */
     // TODO: Why is there no default animation file here?
     public CompletableFuture<Map<ResourceLocation, AzBakedAnimations>> loadAnimations(
-            Executor backgroundExecutor,
-            ResourceManager resourceManager
+        Executor backgroundExecutor,
+        ResourceManager resourceManager
     ) {
         MolangParser.clearExpressionCache();
 
         return loadResources(
-                backgroundExecutor,
-                resourceManager,
-                "animations",
-                // TODO: Process result here, use default animation fallback as necessary.
-                resourceLocation -> {
-                    var result = ResourceFileLoader.loadObjectFromFile(
-                            JsonUtil.GEO_GSON,
-                            AzBakedAnimations.class,
-                            resourceLocation,
-                            resourceManager
-                    );
+            backgroundExecutor,
+            resourceManager,
+            "animations",
+            // TODO: Process result here, use default animation fallback as necessary.
+            resourceLocation -> {
+                var result = ResourceFileLoader.loadObjectFromFile(
+                    JsonUtil.GEO_GSON,
+                    AzBakedAnimations.class,
+                    resourceLocation,
+                    resourceManager
+                );
 
-                    if (result.isErr()) {
-                        result.unwrapErr()
-                                .log(LOGGER, Level.WARN, "Failed to load animations '{}'.", "", resourceLocation);
-                        return null;
-                    }
-
-                    return result.unwrap();
+                if (result.isErr()) {
+                    result.unwrapErr()
+                        .log(LOGGER, Level.WARN, "Failed to load animations '{}'.", "", resourceLocation);
+                    return null;
                 }
+
+                return result.unwrap();
+            }
         );
     }
 

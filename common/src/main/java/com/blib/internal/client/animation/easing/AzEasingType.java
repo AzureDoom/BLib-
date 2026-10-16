@@ -7,9 +7,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
+import com.blib.internal.client.animation.Interpolations;
 import com.blib.internal.client.animation.track.keyframe.AzAnimationPoint;
 import com.blib.internal.client.animation.track.keyframe.AzKeyframe;
-import com.blib.internal.client.animation.Interpolations;
 
 public interface AzEasingType {
 

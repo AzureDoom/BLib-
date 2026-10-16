@@ -10,9 +10,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 
-import com.blib.mod.BLib;
 import com.blib.api.client.model.v1.AzBone;
 import com.blib.internal.client.model.AzBoneSnapshot;
+import com.blib.mod.BLib;
 
 /**
  * A bone pseudo-stack for bone animation positions, scales, and rotations.

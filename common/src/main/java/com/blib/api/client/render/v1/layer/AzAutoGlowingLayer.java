@@ -33,8 +33,8 @@ import com.blib.api.common.color.v1.Color;
  * </p>
  * <p>
  * Quads whose UV area is fully transparent in the glowmask are skipped (see {@link AzGlowCoverage}), and the layer is
- * skipped entirely when the glowmask has no visible pixels. Subclasses that override {@link #determineRenderType}
- * opt out of that filtering, since their texture may not be the glowmask.
+ * skipped entirely when the glowmask has no visible pixels. Subclasses that override {@link #determineRenderType} opt
+ * out of that filtering, since their texture may not be the glowmask.
  * </p>
  */
 public class AzAutoGlowingLayer<K, T> implements AzRenderLayer<K, T> {
@@ -162,7 +162,9 @@ public class AzAutoGlowingLayer<K, T> implements AzRenderLayer<K, T> {
     }
 
     protected int getPackedLight(AzRendererPipelineContext<K, T> context) {
-        return LightTexture.FULL_SKY;
+        // Oct 14 (AzureLib port: "use full-bright lighting for auto-glowing layers") - FULL_SKY carried no block light,
+        // so with the lightmap now enabled for emissive render types a glowmask went dark at night and underground.
+        return LightTexture.FULL_BRIGHT;
     }
 
     protected RenderType determineRenderType(AzRendererPipelineContext<K, T> context) {

@@ -19,9 +19,9 @@ import com.blib.internal.common.molang.MolangVariableRef;
  * {@code ItemStack}.
  */
 /*
- * BLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame
- * garbage. Also fixes query.item_is_enchanted (was inverted: 1 for an unenchanted item) and
- * query.item_current_durability (NaN for an item that cannot take damage; now 0).
+ * BLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame garbage.
+ * Also fixes query.item_is_enchanted (was inverted: 1 for an unenchanted item) and query.item_current_durability (NaN
+ * for an item that cannot take damage; now 0).
  */
 public abstract class AzItemAnimator extends AzAnimator<UUID, ItemStack> {
 

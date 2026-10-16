@@ -1,14 +1,15 @@
 package com.blib.internal.client.profiling.profile;
 
-import com.blib.api.client.profiling.v1.AzProfiler;
-import com.blib.internal.client.profiling.jfr.JfrRecorder;
-import com.blib.mod.BLib;
 import net.minecraft.client.Minecraft;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+
+import com.blib.api.client.profiling.v1.AzProfiler;
+import com.blib.internal.client.profiling.jfr.JfrRecorder;
+import com.blib.mod.BLib;
 
 /**
  * Owns the active session. The listener is only installed while a session runs, so AzureLib's hooks cost nothing

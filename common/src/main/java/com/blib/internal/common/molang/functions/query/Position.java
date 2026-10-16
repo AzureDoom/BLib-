@@ -1,7 +1,7 @@
 package com.blib.internal.common.molang.functions.query;
 
-import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueryContext;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * {@code query.position(axis)}: the entity's world position on the given axis (0 = x, 1 = y, 2 = z).

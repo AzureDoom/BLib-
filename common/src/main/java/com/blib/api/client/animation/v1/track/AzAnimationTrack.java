@@ -539,8 +539,8 @@ public class AzAnimationTrack<T> extends AzAbstractAnimationTrack {
     }
 
     /**
-     * Sets whether this track plays backward. If an animation is playing and its direction changes, it turns around
-     * in place instead of jumping.
+     * Sets whether this track plays backward. If an animation is playing and its direction changes, it turns around in
+     * place instead of jumping.
      */
     public void setReversing(boolean reversing) {
         var wasReversed = isPlayingReversed();

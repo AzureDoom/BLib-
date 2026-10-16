@@ -1,6 +1,5 @@
 package com.blib.internal.client.animation.primitive;
 
-import com.blib.mod.BLib;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.Nullable;
 
@@ -8,6 +7,7 @@ import java.util.Map;
 
 import com.blib.internal.client.animation.cache.AzBakedAnimationCache;
 import com.blib.internal.common.exception.AzureLibException;
+import com.blib.mod.BLib;
 
 public record AzBakedAnimations(
     Map<String, AzBakedAnimation> animations,
@@ -30,16 +30,16 @@ public record AzBakedAnimations(
 
         if (otherBakedAnims == null) {
             BLib.LOGGER.error(
-                    "Animation '{}' is included from '{}', but that file is missing or failed to load",
-                    name,
-                    otherFileID
+                "Animation '{}' is included from '{}', but that file is missing or failed to load",
+                name,
+                otherFileID
             );
             return null;
         }
 
         if (otherBakedAnims == this) {
             throw new AzureLibException(
-                    "The animation file '" + otherFileID + "' refers back to itself through includes."
+                "The animation file '" + otherFileID + "' refers back to itself through includes."
             );
         }
 

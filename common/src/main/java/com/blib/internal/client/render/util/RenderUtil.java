@@ -172,8 +172,8 @@ public class RenderUtil {
      * Returns a new {@link Matrix4f} equal to {@code matrix} with {@code vector} added to its translation (a
      * world-space translation: {@code T(vector) * matrix}). The original matrix is not modified.
      * <p>
-     * This used to add an identity-plus-translation matrix to {@code matrix}, which moved the translation correctly
-     * but also added 1 to every diagonal entry, corrupting the rotation/scale part (and the {@code w} of transformed
+     * This used to add an identity-plus-translation matrix to {@code matrix}, which moved the translation correctly but
+     * also added 1 to every diagonal entry, corrupting the rotation/scale part (and the {@code w} of transformed
      * points). It now only touches the translation.
      */
     public static Matrix4f translateMatrix(Matrix4f matrix, Vector3f vector) {
@@ -181,8 +181,8 @@ public class RenderUtil {
     }
 
     /**
-     * In-place form of {@link #translateMatrix}: adds {@code vector} to {@code matrix}'s translation and returns it. Use
-     * this when you own the matrix, to avoid the extra allocation.
+     * In-place form of {@link #translateMatrix}: adds {@code vector} to {@code matrix}'s translation and returns it.
+     * Use this when you own the matrix, to avoid the extra allocation.
      */
     public static Matrix4f translateMatrixInPlace(Matrix4f matrix, Vector3f vector) {
         return matrix.translateLocal(vector);

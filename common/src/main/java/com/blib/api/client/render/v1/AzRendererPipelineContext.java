@@ -136,8 +136,8 @@ public abstract class AzRendererPipelineContext<K, T> {
     }
 
     /**
-     * Swaps the model the current pass renders, e.g. for a render layer that re-renders a different model with the
-     * same animatable. {@code null} falls back to {@link AzBakedModel#getDefault()}.
+     * Swaps the model the current pass renders, e.g. for a render layer that re-renders a different model with the same
+     * animatable. {@code null} falls back to {@link AzBakedModel#getDefault()}.
      */
     public void setBakedModel(@Nullable AzBakedModel bakedModel) {
         this.bakedModel = bakedModel != null ? bakedModel : AzBakedModel.getDefault();

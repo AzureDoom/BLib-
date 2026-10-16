@@ -7,6 +7,7 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL40;
+import org.lwjgl.opengl.GL41;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -76,6 +77,47 @@ public final class BLibGbufferUniforms {
         applyBackgroundEntityUniform(programId, shaderName);
         applyBackgroundEntity2Uniform(programId, shaderName);
         applyMaterialIdUniform(programId);
+
+        probeApply(programId, shaderName);
+    }
+
+    // Oct 10 - WRITTEN BY PROGRAM ID, NOT "WHATEVER IS BOUND". [maskProbe] after a shader pack was switched off, every
+    // mob still landed in the mask (category 255) but BOTH per-mob values - the background lane that hides a mob in one
+    // vision mode, and the material id - read 0 for every mob, every second, where before the switch they varied as
+    // expected. glUniform writes into the CURRENTLY BOUND program. Vanilla's ShaderInstance.apply skips binding its
+    // program when it believes it is already bound (a cached "last program" id), and a pack switching on and off binds
+    // and deletes programs behind that cache - so the values went into some other program. glProgramUniform names
+    // the program explicitly (core since OpenGL 4.1; Iris itself runs on 4.5 here), so the binding no longer matters.
+
+    private static final boolean PROBE = Boolean.getBoolean("blib.postEffect.maskProbe");
+
+    private static long lastProbeApplyAt;
+
+    /** Oct 10 - DIAGNOSTIC ONLY (maskProbe): what one entity-shader apply actually wrote, once a second. */
+    private static void probeApply(int programId, String shaderName) {
+        if (!PROBE || !"rendertype_entity_cutout_no_cull".equals(shaderName) && !"rendertype_entity_cutout".equals(shaderName)) {
+            return;
+        }
+
+        var now = System.currentTimeMillis();
+
+        if (now - lastProbeApplyAt < 1000L) {
+            return;
+        }
+
+        lastProbeApplyAt = now;
+
+        BLib.LOGGER.info(
+            "[BLib][maskProbe] apply shader={} program={} boundProgram={} bgLoc={} matLoc={} laneA={} laneB={} material={}",
+            shaderName,
+            programId,
+            GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM),
+            BACKGROUND_ENTITY_LOC_CACHE.get(programId),
+            MATERIAL_ID_LOC_CACHE.get(programId),
+            isBackgroundEntity(),
+            BLibBackgroundEntityRenderState.isActiveB(),
+            BLibMaterialIdRenderState.current()
+        );
     }
 
     /**
@@ -86,6 +128,26 @@ public final class BLibGbufferUniforms {
      */
     public static void resetColorMaskCache() {
         lastAuxWritesEnabled = true;
+    }
+
+    /**
+     * Oct 9 - FORGETS EVERY UNIFORM LOCATION LOOKED UP SO FAR. Called whenever a shader is compiled.
+     * <p>
+     * [tester] "its whatever refresh f3 + T does ... doing that makes the mask stop picking up mobs ... the more you press
+     * it the more it breaks". The four location caches above are keyed by the GL PROGRAM ID and were never cleared.
+     * F3+T (and a shader-pack reload) deletes every shader program and compiles new ones - and OpenGL hands the freed
+     * ids straight back out, to DIFFERENT shaders. A recycled id then hit the old entry: a location from another
+     * program, so the held-item / background-entity / material-id values were written into the wrong uniform or not
+     * written at all, and mobs stopped being classified in the mask (EM saw nothing, thermal saw no bodies). Every
+     * further reload shuffled more ids, so it got worse with each press. Locations are cheap to look up again, and
+     * compiles are rare, so the caches simply start over.
+     */
+    public static void clearProgramCaches() {
+        HELD_ITEM_LOC_CACHE.clear();
+        BACKGROUND_ENTITY_LOC_CACHE.clear();
+        BACKGROUND_ENTITY2_LOC_CACHE.clear();
+        MATERIAL_ID_LOC_CACHE.clear();
+        resetColorMaskCache();
     }
 
     /**
@@ -431,7 +493,7 @@ public final class BLibGbufferUniforms {
             return;
         }
 
-        GL20.glUniform1i(loc, BLibHeldItemRenderState.isActive() ? 1 : 0);
+        GL41.glProgramUniform1i(programId, loc, BLibHeldItemRenderState.isActive() ? 1 : 0);
     }
 
     private static void applyBackgroundEntityUniform(int programId, String shaderName) {
@@ -444,7 +506,7 @@ public final class BLibGbufferUniforms {
             return;
         }
 
-        GL20.glUniform1i(loc, isBackgroundEntity() ? 1 : 0);
+        GL41.glProgramUniform1i(programId, loc, isBackgroundEntity() ? 1 : 0);
     }
 
     /**
@@ -487,7 +549,7 @@ public final class BLibGbufferUniforms {
             return;
         }
 
-        GL20.glUniform1i(loc, BLibMaterialIdRenderState.current());
+        GL41.glProgramUniform1i(programId, loc, BLibMaterialIdRenderState.current());
     }
 
     private static void applyBackgroundEntity2Uniform(int programId, String shaderName) {
@@ -500,6 +562,6 @@ public final class BLibGbufferUniforms {
             return;
         }
 
-        GL20.glUniform1i(loc, BLibBackgroundEntityRenderState.isActiveB() ? 1 : 0);
+        GL41.glProgramUniform1i(programId, loc, BLibBackgroundEntityRenderState.isActiveB() ? 1 : 0);
     }
 }

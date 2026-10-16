@@ -5,9 +5,9 @@
  */
 package com.blib.internal.common.molang.expressions;
 
+import com.blib.internal.common.molang.MolangParser;
 import com.blib.internal.common.molang.math.Constant;
 import com.blib.internal.common.molang.math.IValue;
-import com.blib.internal.common.molang.MolangParser;
 
 /**
  * Molang extension for the {@link IValue} system. Used to handle values and expressions specific to Molang

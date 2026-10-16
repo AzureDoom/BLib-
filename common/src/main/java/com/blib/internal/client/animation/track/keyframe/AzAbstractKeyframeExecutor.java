@@ -5,12 +5,12 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.List;
 
+import com.blib.api.common.spatial.v1.Axis;
 import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.easing.AzEasingUtil;
 import com.blib.internal.client.animation.primitive.AzBakedAnimation;
 import com.blib.internal.common.molang.math.Constant;
 import com.blib.internal.common.molang.math.IValue;
-import com.blib.api.common.spatial.v1.Axis;
 
 /**
  * AzAbstractKeyframeExecutor is a base class designed to handle animations and transitions between keyframes in a
@@ -221,8 +221,8 @@ public class AzAbstractKeyframeExecutor {
      * Returns the {@link AzKeyframe} relevant to the current tick time, written into {@code scratch}. Its start tick is
      * the time elapsed since that keyframe started.
      *
-     * @deprecated No longer used by BLib; see {@link AzKeyframeChannel#locate(double, int)}. Kept for
-     *             compatibility, and now a single allocation-free pass over the list.
+     * @deprecated No longer used by BLib; see {@link AzKeyframeChannel#locate(double, int)}. Kept for compatibility,
+     *             and now a single allocation-free pass over the list.
      */
     @Deprecated
     protected AzKeyframeLocation<AzKeyframe<IValue>> getCurrentKeyframeLocation(

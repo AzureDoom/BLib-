@@ -5,9 +5,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 
-import com.blib.internal.client.animation.track.state.machine.AzAnimationTrackStateMachine;
 import com.blib.api.client.animation.v1.command.sequence.AzAnimationSequence;
 import com.blib.api.client.animation.v1.command.sequence.AzSequence;
+import com.blib.internal.client.animation.track.state.machine.AzAnimationTrackStateMachine;
 
 /**
  * A play behavior that, whenever its animation finishes, picks the next animation from a weighted pool and plays it

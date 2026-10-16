@@ -1,6 +1,5 @@
 package com.blib.internal.client.animation.track;
 
-import com.blib.api.client.animation.v1.track.AzBlendMode;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import org.jetbrains.annotations.Nullable;
@@ -8,12 +7,13 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Collection;
 import java.util.Map;
 
+import com.blib.api.client.animation.v1.track.AzBlendMode;
+import com.blib.api.client.model.v1.AzBakedModel;
 import com.blib.internal.client.animation.AzBoneAnimationUpdateUtil;
 import com.blib.internal.client.animation.cache.AzBoneCache;
-import com.blib.internal.client.animation.track.keyframe.AzBoneAnimationQueue;
 import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.primitive.AzBakedAnimation;
-import com.blib.api.client.model.v1.AzBakedModel;
+import com.blib.internal.client.animation.track.keyframe.AzBoneAnimationQueue;
 
 /**
  * The AzBoneAnimationQueueCache class is responsible for managing and updating animation queues for bones. It acts as a

@@ -76,6 +76,7 @@
     "posteffect.MixinRenderTarget_MRT",
     "posteffect.MixinShaderInstance_GbufferUniforms",
     "posteffect.MixinVertexBuffer_VeilProbe",
+    "posteffect.MixinRenderSystem_VeilPrivateShader",
     "MixinModelPart_Accessor",
     "MixinLivingEntity_ForceBlocking",
     "MixinQuadrupedModel_Accessor"

@@ -2,14 +2,14 @@ package com.blib.internal.client.profiling.profile;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 
-import com.blib.api.client.profiling.v1.AzProfileStage;
-import com.blib.api.client.profiling.v1.AzProfilerListener;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+
+import com.blib.api.client.profiling.v1.AzProfileStage;
+import com.blib.api.client.profiling.v1.AzProfilerListener;
 
 /**
  * Aggregates AzureLib stage timings for one profiling run.

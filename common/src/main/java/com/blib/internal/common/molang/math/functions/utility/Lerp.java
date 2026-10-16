@@ -5,9 +5,9 @@
  */
 package com.blib.internal.common.molang.math.functions.utility;
 
+import com.blib.internal.client.animation.Interpolations;
 import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.math.functions.Function;
-import com.blib.internal.client.animation.Interpolations;
 
 public class Lerp extends Function {
 

@@ -9,6 +9,7 @@ accessible class net/minecraft/client/renderer/RenderStateShard$TextureStateShar
 accessible class net/minecraft/client/renderer/RenderStateShard$TransparencyStateShard
 accessible class net/minecraft/client/renderer/RenderStateShard$WriteMaskStateShard
 accessible class net/minecraft/client/renderer/RenderStateShard$OverlayStateShard
+accessible field net/minecraft/client/renderer/RenderStateShard LIGHTMAP Lnet/minecraft/client/renderer/RenderStateShard$LightmapStateShard;
 accessible class net/minecraft/client/renderer/RenderType$CompositeState
 accessible class net/minecraft/world/level/block/entity/BlockEntityType$BlockEntitySupplier
 

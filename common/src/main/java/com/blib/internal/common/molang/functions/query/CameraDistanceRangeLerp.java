@@ -1,7 +1,7 @@
 package com.blib.internal.common.molang.functions.query;
 
-import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueryContext;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * {@code query.camera_distance_range_lerp(a, b)}: 0 when the camera is at or closer than the nearer distance, 1 at or

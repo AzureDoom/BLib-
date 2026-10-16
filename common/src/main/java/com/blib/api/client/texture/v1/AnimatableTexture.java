@@ -117,8 +117,8 @@ public class AnimatableTexture extends SimpleTexture {
     }
 
     /**
-     * {@code setAnimationFrame(int)} on texture classes that aren't BLib's own (other mods' animated textures), looked up
-     * once per class rather than on every call. {@code null} for classes without one.
+     * {@code setAnimationFrame(int)} on texture classes that aren't BLib's own (other mods' animated textures), looked
+     * up once per class rather than on every call. {@code null} for classes without one.
      */
     private static final ClassValue<Method> SET_ANIMATION_FRAME = new ClassValue<>() {
 

@@ -1,7 +1,7 @@
 package com.blib.internal.common.molang.functions.query;
 
-import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueryContext;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * {@code query.armor_damage_slot(slot)}: the damage value of the item in the armor slot.

@@ -457,6 +457,26 @@ public final class BLibMainTargetMRT {
         // no-op again, and still catches every genuine mid-session toggle.
         var alreadyCorrect = packActive ? !attached : (attached && attachedToMainTarget);
 
+        // Oct 10 - "ATTACHED" MUST MEAN ATTACHED TO THE MAIN TARGET THAT EXISTS NOW. [tester] launching with shaders
+        // OFF works; turning a pack on and then OFF again mid-session leaves the vision broken - mobs in the wrong
+        // categories and their outlines smeared across the screen as trails, i.e. the mask no longer cleared and
+        // written each frame where the vision reads it. Switching a pack off can rebuild the main render target after
+        // this class has re-attached to it, and the flags above then still say "attached" to a framebuffer that is no
+        // longer the one being drawn. Two integer compares per frame catch that and re-attach.
+        if (alreadyCorrect && !packActive && !mainTargetStillMatches()) {
+            BLib.LOGGER.info(
+                "[BLib] Main render target changed under the auxiliary attachments (framebuffer {} {}x{}); re-attaching.",
+                attachedFrameBufferId,
+                width,
+                height
+            );
+            BLibIrisAuxTarget.INSTANCE.invalidate();
+            reattachToMainTarget();
+            lastKnownShaderPackActive = packActive;
+
+            return;
+        }
+
         if (alreadyCorrect) {
             lastKnownShaderPackActive = packActive;
 
@@ -468,6 +488,13 @@ public final class BLibMainTargetMRT {
         }
 
         lastKnownShaderPackActive = packActive;
+
+        // Oct 10 - a pack switching on or off swaps which shader programs draw the entities (and Iris deletes and
+        // creates programs as it does), so every per-program uniform location BLib looked up so far is suspect.
+        // [maskProbe] after switching a pack off: entities still stamped (category 255) but the background-lane value
+        // that tells each vision mode to hide a mob stayed 0 for every mob - cows showed in EM, cold xenos in thermal.
+        // Look the locations up again from scratch on every transition; it costs one lookup per shader.
+        BLibGbufferUniforms.clearProgramCaches();
 
         if (packActive) {
             detachFromMainTarget();
@@ -520,6 +547,19 @@ public final class BLibMainTargetMRT {
         BLib.LOGGER.info("[BLib] Shader pack enabled; auxiliary attachments detached from the main render target.");
     }
 
+    /** Oct 10 - {@return whether the attachments are on the CURRENT main target, at its current size} */
+    private static boolean mainTargetStillMatches() {
+        var mainTarget = Minecraft.getInstance().getMainRenderTarget();
+
+        if (mainTarget == null || mainTarget.viewWidth <= 0 || mainTarget.viewHeight <= 0) {
+            return true; // nothing to compare against yet - not a mismatch
+        }
+
+        return attachedFrameBufferId == mainTarget.frameBufferId
+            && width == mainTarget.viewWidth
+            && height == mainTarget.viewHeight;
+    }
+
     /** The mirror of {@link #detachFromMainTarget()}, for a pack being switched back OFF mid-session. */
     private static void reattachToMainTarget() {
         var mainTarget = Minecraft.getInstance().getMainRenderTarget();
@@ -540,7 +580,12 @@ public final class BLibMainTargetMRT {
         GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, previousDrawFramebuffer);
         GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, previousReadFramebuffer);
 
-        BLib.LOGGER.info("[BLib] Shader pack disabled; auxiliary attachments restored to the main render target.");
+        BLib.LOGGER.info(
+            "[BLib] Shader pack disabled; auxiliary attachments restored to the main render target (framebuffer {} {}x{}).",
+            attachedFrameBufferId,
+            width,
+            height
+        );
     }
 
     public static void destroy() {

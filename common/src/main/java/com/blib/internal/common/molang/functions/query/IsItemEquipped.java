@@ -1,7 +1,7 @@
 package com.blib.internal.common.molang.functions.query;
 
-import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueryContext;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * {@code query.is_item_equipped([hand])}: 1 if the hand (0 = main hand, the default, 1 = offhand) holds an item.

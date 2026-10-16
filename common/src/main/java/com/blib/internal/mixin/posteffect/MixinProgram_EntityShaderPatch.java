@@ -36,6 +36,10 @@ public abstract class MixinProgram_EntityShaderPatch {
         @Local(argsOnly = true) Program.Type type,
         @Local(argsOnly = true, ordinal = 0) String name
     ) {
+        // Oct 9 - a shader is being (re)compiled, so program ids are about to be reused: drop the per-program uniform
+        // location caches (F3+T made the mask stop seeing mobs - see BLibGbufferUniforms.clearProgramCaches).
+        com.blib.internal.client.posteffect.BLibGbufferUniforms.clearProgramCaches();
+
         var joined = String.join("", source);
         var patched = BLibEntityShaderPatcher.transform(name, type, joined);
 

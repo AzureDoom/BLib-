@@ -6,10 +6,10 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.function.Function;
 
+import com.blib.internal.client.animation.Interpolations;
 import com.blib.internal.client.animation.track.keyframe.AzAnimationPoint;
 import com.blib.internal.client.animation.track.keyframe.AzKeyframe;
 import com.blib.internal.common.molang.math.Constant;
-import com.blib.internal.client.animation.Interpolations;
 
 /**
  * The {@link AzEasingType} created by {@link AzEasingTypeRegistry#register(String, Function)} and

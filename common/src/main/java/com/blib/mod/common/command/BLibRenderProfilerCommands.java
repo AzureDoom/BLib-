@@ -1,9 +1,5 @@
 package com.blib.mod.common.command;
 
-import com.blib.internal.client.profiling.jfr.JfrRecorder;
-import com.blib.internal.client.profiling.profile.ProfilerControl;
-import com.blib.internal.client.profiling.profile.ReportWriter;
-import com.blib.mod.BLib;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
@@ -13,6 +9,11 @@ import org.jetbrains.annotations.ApiStatus;
 
 import java.util.Locale;
 import java.util.function.BiConsumer;
+
+import com.blib.internal.client.profiling.jfr.JfrRecorder;
+import com.blib.internal.client.profiling.profile.ProfilerControl;
+import com.blib.internal.client.profiling.profile.ReportWriter;
+import com.blib.mod.BLib;
 
 /**
  * The {@code /blib_render_profiler} client command, built over the loader's command source type:

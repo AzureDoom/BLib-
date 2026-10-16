@@ -45,6 +45,9 @@ public final class BLibIrisClassificationPass {
 
     private static boolean insidePass;
 
+    /** Oct 8 - true while the pass draws with BLib's private entity shaders (Veil replaced the patched ones). */
+    private static boolean usingPrivateShaders;
+
     private static MultiBufferSource.BufferSource bufferSource;
 
     private BLibIrisClassificationPass() {
@@ -62,6 +65,11 @@ public final class BLibIrisClassificationPass {
         return insidePass;
     }
 
+    /** Oct 8 - {@return whether entity shaders are being swapped for BLib's private copies right now} */
+    public static boolean isUsingPrivateShaders() {
+        return usingPrivateShaders;
+    }
+
     /**
      * Runs the pass, if a shader pack is active and something actually wants a classification.
      * <p>
@@ -73,7 +81,17 @@ public final class BLibIrisClassificationPass {
             return;
         }
 
-        if (!BLibIrisCompat.isShaderPackActive() || !wantsClassification()) {
+        // Oct 8: the pass also runs when Veil has replaced the patched entity programs (Sable and friends), with or
+        // without Iris installed - see BLibVeilCompat. Plain play (no pack, no Veil, or Veil not interfering) never
+        // gets here, so its main-pass classification is untouched.
+        if (!wantsClassification()) {
+            return;
+        }
+
+        var packActive = BLibIrisCompat.isShaderPackActive();
+        var veilReplaced = BLibVeilCompat.patchReplacedByVeil();
+
+        if (!packActive && !veilReplaced) {
             return;
         }
 
@@ -116,10 +134,16 @@ public final class BLibIrisClassificationPass {
         RenderSystem.viewport(0, 0, BLibMainTargetMRT.width(), BLibMainTargetMRT.height());
 
         insidePass = true;
+        usingPrivateShaders = veilReplaced;
 
         // Every pixel must be defined every frame or last frame's classification shows through as trails smeared
         // across the view as the camera turns. That was a real bug on the no-pack path; it is not repeated here.
-        BLibMainTargetMRT.clearAuxiliaryAttachments();
+        // Under a pack the attachments hold nothing of ours yet, so start clean. Under Veil without a pack they already
+        // hold this frame's terrain classification (the Sodium depth-gated fixup ran earlier in the level pass) -
+        // clearing would wipe it. Entity pixels are simply drawn over below.
+        if (packActive) {
+            BLibMainTargetMRT.clearAuxiliaryAttachments();
+        }
 
         GL30.glBindFramebuffer(GL_FRAMEBUFFER, BLibIrisAuxTarget.INSTANCE.frameBufferId());
 
@@ -256,6 +280,7 @@ public final class BLibIrisClassificationPass {
             BLib.LOGGER.error("[BLib] Iris classification pass failed: {}", throwable.toString());
         } finally {
             insidePass = false;
+            usingPrivateShaders = false;
 
             RenderSystem.polygonOffset(0.0F, 0.0F);
             RenderSystem.disablePolygonOffset();

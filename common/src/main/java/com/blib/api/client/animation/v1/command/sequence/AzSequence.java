@@ -26,8 +26,8 @@ import com.blib.internal.client.animation.property.AzAnimationStageProperties;
  * <p>
  * Instances are immutable: every method returns a new sequence.
  * <p>
- * Note (as in BLib): event ticks are not scaled by animation speed, and the track's transition length is added
- * before each stage on the client; allow for both when lining events up with keyframes.
+ * Note (as in BLib): event ticks are not scaled by animation speed, and the track's transition length is added before
+ * each stage on the client; allow for both when lining events up with keyframes.
  */
 public final class AzSequence {
 
@@ -136,7 +136,9 @@ public final class AzSequence {
         return toBuilder().authored(animationName).build();
     }
 
-    /** Appends a stage that plays the animation forward and back indefinitely; see {@link AzPlayBehaviors#PING_PONG}. */
+    /**
+     * Appends a stage that plays the animation forward and back indefinitely; see {@link AzPlayBehaviors#PING_PONG}.
+     */
     public AzSequence pingPong(String animationName) {
         return toBuilder().pingPong(animationName).build();
     }

@@ -1,6 +1,5 @@
 package com.blib.internal.client.profiling.profile;
 
-import com.blib.internal.client.animation.track.AzAbstractAnimationTrack;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -8,6 +7,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
+
+import com.blib.internal.client.animation.track.AzAbstractAnimationTrack;
 
 /**
  * Maps hook subjects to stable aggregation keys without allocating: an entity aggregates under its type, an item stack

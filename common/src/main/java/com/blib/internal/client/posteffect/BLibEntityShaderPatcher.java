@@ -34,7 +34,9 @@ import com.blib.mod.BLib;
  * If the source doesn't match the expected anchors (e.g., Mojang restructures shaders in a future version), the patcher
  * returns the source unchanged and logs a warning rather than producing non-compilable GLSL.
  * <p>
- * Bypassed entirely when {@link BLibIrisCompat#isShaderPackActive()} — Iris owns those shaders in that case.
+ * Applied whether or not a shader pack is active (Oct 10): the Iris classification pass draws mobs into the mask with
+ * these vanilla shaders while a pack runs, so they must be patched even then. A pack's own programs never match the
+ * vanilla names below, so they are left alone.
  */
 @ApiStatus.Internal
 public final class BLibEntityShaderPatcher {
@@ -116,9 +118,14 @@ public final class BLibEntityShaderPatcher {
     }
 
     public static String transform(String shaderName, Program.Type type, String source) {
-        if (BLibIrisCompat.isShaderPackActive()) {
-            return source;
-        }
+        // Oct 10 - NO SHADER-PACK GATE ANY MORE. [tester] "f3 + t still breaks it ... mobs not picked up but heat from
+        // blocks is" (Sodium + Iris + Complementary; BLib 0.3.11z in the log). This used to return the source untouched
+        // whenever a pack was active - a leftover from when every effect stood down under a pack. But the Iris
+        // classification pass now draws mobs into the mask WITH these vanilla entity shaders while a pack is running,
+        // so they must always carry BLib's outputs. At startup they were compiled before the pack switched on, so they
+        // were patched and mobs showed; F3+T recompiles them while the pack IS on, they came back unpatched, and every
+        // mob vanished from the mask (blocks kept their heat - that comes from depth, not this). Only vanilla's own
+        // shader names are matched (categoryFor), so a pack's programs are never touched.
 
         var category = categoryFor(shaderName);
 

@@ -1,7 +1,7 @@
 package com.blib.internal.client.animation.track;
 
-import com.blib.api.client.animation.v1.track.AzAnimationTrack;
 import com.blib.api.client.animation.v1.animator.AzAnimationContext;
+import com.blib.api.client.animation.v1.track.AzAnimationTrack;
 import com.blib.internal.client.animation.track.state.machine.AzAnimationTrackStateMachine;
 
 /**
@@ -41,8 +41,8 @@ public class AzAnimationTrackTimer<T> {
     /**
      * Resets the internal state of the animation timer. This method updates the tick offset value to the current
      * animation time retrieved from the associated animation context's timer and resets the adjusted tick to zero. It
-     * effectively synchronizes the timer with the current state of the animation track, ensuring that subsequent
-     * tick calculations reflect the reset starting point.
+     * effectively synchronizes the timer with the current state of the animation track, ensuring that subsequent tick
+     * calculations reflect the reset starting point.
      */
     public void reset() {
         AzAnimationTrackStateMachine<?> stateMachine = animationTrack.stateMachine();
@@ -81,9 +81,9 @@ public class AzAnimationTrackTimer<T> {
     }
 
     /**
-     * Adds the specified value to the currently tracked adjusted tick value for the animation track timer. This
-     * method increments the adjusted tick by the provided amount, allowing for cumulative adjustments to the tick value
-     * over time.
+     * Adds the specified value to the currently tracked adjusted tick value for the animation track timer. This method
+     * increments the adjusted tick by the provided amount, allowing for cumulative adjustments to the tick value over
+     * time.
      *
      * @param adjustedTick The value to be added to the current-adjusted tick. This parameter represents the amount by
      *                     which the adjusted tick should be updated.

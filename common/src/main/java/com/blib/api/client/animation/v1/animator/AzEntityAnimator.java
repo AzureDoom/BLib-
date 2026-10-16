@@ -23,8 +23,7 @@ import com.blib.internal.common.molang.MolangVariableRef;
  * @param <T> The type of entity this animator is designed to manage.
  */
 /*
- * BLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame
- * garbage.
+ * BLib 3.1.13 port (Oct 5): queries bound through MolangVariableRef to suppliers created once - no per-frame garbage.
  */
 public abstract class AzEntityAnimator<T extends Entity> extends AzAnimator<UUID, T> {
 

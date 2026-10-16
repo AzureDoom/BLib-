@@ -2,9 +2,9 @@ package com.blib.internal.client.animation.easing;
 
 import it.unimi.dsi.fastutil.doubles.Double2DoubleFunction;
 
+import com.blib.internal.client.animation.Interpolations;
 import com.blib.internal.client.animation.track.keyframe.AzAnimationPoint;
 import com.blib.internal.client.animation.track.keyframe.AzKeyframe;
-import com.blib.internal.client.animation.Interpolations;
 
 @SuppressWarnings("unused")
 public class AzEasingUtil {
@@ -250,8 +250,8 @@ public class AzEasingUtil {
     }
 
     /**
-     * Resolves the effective easing type for an animation point, honoring a track-wide {@code override} where it
-     * is meaningful and falling back to the keyframe's own authored easing where it is not.
+     * Resolves the effective easing type for an animation point, honoring a track-wide {@code override} where it is
+     * meaningful and falling back to the keyframe's own authored easing where it is not.
      * <p>
      * The nuance is data-driven easings. Stateless easings (linear, sine, quad, cubic, ...) are pure functions of the
      * lerp fraction and are safe to force globally, so an override of that kind always wins. Data-driven easings

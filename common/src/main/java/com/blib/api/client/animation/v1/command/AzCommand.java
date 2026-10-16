@@ -108,11 +108,56 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
         dispatch(blockEntity);
     }
 
+    /**
+     * Dispatches to every animator the stack has. If the item's renderer uses a separate first-person animator
+     * ({@code AzItemRendererConfig.Builder#useSeparateFirstPersonAnimator()}), both the first-person and third-person
+     * views play it; use {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)}
+     * to target only one of them.
+     */
     public void dispatchForItem(Entity entity, T itemStack) {
-        if (itemStack instanceof ItemStack stack) {
-            validateClientSide(entity.level(), "ItemStack", stack);
+        dispatchForItem(entity, itemStack, null);
+    }
+
+    /**
+     * Oct 14 (AzureLib port) - dispatches to the animator for one view only, or to every animator the stack has when
+     * {@code view} is null. {@code FIRST_PERSON} only has an effect when the item's renderer was built with
+     * {@code useSeparateFirstPersonAnimator()}; {@code DEFAULT} is third person and every other context.
+     */
+    @SuppressWarnings("unchecked")
+    public void dispatchForItem(
+        Entity entity,
+        T itemStack,
+        com.blib.api.client.animation.v1.animator.@org.jetbrains.annotations.Nullable AzItemAnimatorView view
+    ) {
+        if (!(itemStack instanceof ItemStack stack)) {
+            dispatch(itemStack);
+            return;
         }
-        dispatch(itemStack);
+
+        validateClientSide(entity.level(), "ItemStack", stack);
+
+        var uuid = stack.get(com.blib.mod.common.registry.init.BLibDataComponents.AZ_ID.get());
+
+        com.blib.internal.client.animation.cache.AzIdentifiableItemStackAnimatorCache.getInstance()
+            .forEach(
+                uuid,
+                view,
+                animator -> actions.forEach(
+                    action -> action.handle(
+                        (com.blib.api.client.animation.v1.animator.AzAnimator<?, T>) (com.blib.api.client.animation.v1.animator.AzAnimator<?, ?>) animator
+                    )
+                )
+            );
+    }
+
+    /** Shorthand for {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} with {@code FIRST_PERSON}. */
+    public void dispatchForItemFirstPerson(Entity entity, T itemStack) {
+        dispatchForItem(entity, itemStack, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.FIRST_PERSON);
+    }
+
+    /** Shorthand for {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} with {@code DEFAULT} (third person and every other context). */
+    public void dispatchForItemThirdPerson(Entity entity, T itemStack) {
+        dispatchForItem(entity, itemStack, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT);
     }
 
     private void dispatch(T animatable) {

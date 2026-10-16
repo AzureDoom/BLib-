@@ -5,18 +5,18 @@ import java.util.NoSuchElementException;
 import java.util.function.DoubleSupplier;
 
 import com.blib.api.client.animation.v1.track.AzAnimationTrack;
+import com.blib.api.client.model.v1.AzBone;
+import com.blib.api.common.spatial.v1.Axis;
+import com.blib.internal.client.animation.easing.AzEasingType;
 import com.blib.internal.client.animation.track.AzBoneAnimationQueueCache;
 import com.blib.internal.client.animation.track.AzBoneSnapshotCache;
-import com.blib.internal.client.animation.easing.AzEasingType;
-import com.blib.api.client.model.v1.AzBone;
 import com.blib.internal.common.molang.MolangQueries;
 import com.blib.internal.common.molang.MolangVariableRef;
-import com.blib.api.common.spatial.v1.Axis;
 
 /**
  * AzKeyframeTransitioner is a specialized class for executing smooth animations and transitions between keyframes for
- * bones in an animation system. It utilizes animation tracks, bone animation queue caches, and bone snapshot
- * caches to manage and apply transitions for rotation, position, and scale of bones.
+ * bones in an animation system. It utilizes animation tracks, bone animation queue caches, and bone snapshot caches to
+ * manage and apply transitions for rotation, position, and scale of bones.
  *
  * @param <T> The type of the animation data handled by the associated animation track.
  */

@@ -1,15 +1,16 @@
 package com.blib.api.client.render.v1.lod;
 
-import com.blib.api.client.model.v1.AzBakedModel;
-import com.blib.api.client.model.v1.AzBone;
-import com.blib.api.client.profiling.v1.AzProfileStage;
-import com.blib.api.client.profiling.v1.AzProfiler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
 
 import java.util.Collections;
 import java.util.Set;
 import java.util.WeakHashMap;
+
+import com.blib.api.client.model.v1.AzBakedModel;
+import com.blib.api.client.model.v1.AzBone;
+import com.blib.api.client.profiling.v1.AzProfileStage;
+import com.blib.api.client.profiling.v1.AzProfiler;
 
 /**
  * Applies {@link AzLodConfig} rules to an entity each render frame.
@@ -33,7 +34,7 @@ public final class AzLodManager {
     private final AzLodConfig config;
 
     private static final Set<AzBakedModel> MODELS_WITH_LOD_HIDDEN_BONES = Collections.newSetFromMap(
-            new WeakHashMap<>()
+        new WeakHashMap<>()
     );
 
     /**

@@ -9,7 +9,6 @@ import com.blib.internal.client.animation.easing.AzEasingType;
 
 public class AzAnimationProperties {
 
-
     public static final AzAnimationProperties DEFAULT = new AzAnimationProperties(1D, null, 0F, 0D, 0D, 1D, false);
 
     public static final AzAnimationProperties EMPTY = new AzAnimationProperties(

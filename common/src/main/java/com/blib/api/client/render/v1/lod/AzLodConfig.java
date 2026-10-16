@@ -17,10 +17,10 @@ package com.blib.api.client.render.v1.lod;
 public final class AzLodConfig {
 
     public static final AzLodConfig DISABLED = new AzLodConfig(
-            Double.MAX_VALUE,
-            Integer.MAX_VALUE,
-            Double.MAX_VALUE,
-            1
+        Double.MAX_VALUE,
+        Integer.MAX_VALUE,
+        Double.MAX_VALUE,
+        1
     );
 
     /**
@@ -33,9 +33,9 @@ public final class AzLodConfig {
      * </p>
      */
     public static final AzLodConfig DEFAULT = builder()
-            .boneLod(40, 3)
-            .animLod(48, 2)
-            .build();
+        .boneLod(40, 3)
+        .animLod(48, 2)
+        .build();
 
     private final double boneLodDistanceSq;
 
@@ -46,10 +46,10 @@ public final class AzLodConfig {
     private final int animLodTickInterval;
 
     private AzLodConfig(
-            double boneLodDistanceSq,
-            int boneLodDepth,
-            double animLodDistanceSq,
-            int animLodTickInterval
+        double boneLodDistanceSq,
+        int boneLodDepth,
+        double animLodDistanceSq,
+        int animLodTickInterval
     ) {
         this.boneLodDistanceSq = boneLodDistanceSq;
         this.boneLodDepth = boneLodDepth;
@@ -126,10 +126,10 @@ public final class AzLodConfig {
 
         public AzLodConfig build() {
             return new AzLodConfig(
-                    boneLodDistance * boneLodDistance,
-                    boneLodDepth,
-                    animLodDistance * animLodDistance,
-                    animLodTickInterval
+                boneLodDistance * boneLodDistance,
+                boneLodDepth,
+                animLodDistance * animLodDistance,
+                animLodTickInterval
             );
         }
     }

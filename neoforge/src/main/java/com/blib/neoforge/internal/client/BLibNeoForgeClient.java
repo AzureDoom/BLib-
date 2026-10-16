@@ -1,6 +1,5 @@
 package com.blib.neoforge.internal.client;
 
-import com.blib.mod.common.command.BLibRenderProfilerCommands;
 import net.minecraft.commands.Commands;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -13,6 +12,7 @@ import org.jetbrains.annotations.ApiStatus;
 import com.blib.internal.client.BLibClient;
 import com.blib.internal.client.territory.BLibClaimHud;
 import com.blib.mod.BLib;
+import com.blib.mod.common.command.BLibRenderProfilerCommands;
 import com.blib.neoforge.internal.client.shader.BLibNeoForgeShaders;
 
 @ApiStatus.Internal
@@ -24,11 +24,14 @@ public class BLibNeoForgeClient {
         NeoForge.EVENT_BUS.<ClientTickEvent.Post>addListener(event -> BLibClaimHud.tick());
         BLibNeoForgeShaders.register(modEventBus);
         NeoForge.EVENT_BUS.<RegisterClientCommandsEvent>addListener(
-                event -> event.getDispatcher().register(
-                        Commands.literal("blibclient")
-                                .then(BLibRenderProfilerCommands.build(
-                                        (source, message) -> source.sendSuccess(() -> message, false)
-                                ))
+            event -> event.getDispatcher()
+                .register(
+                    Commands.literal("blibclient")
+                        .then(
+                            BLibRenderProfilerCommands.build(
+                                (source, message) -> source.sendSuccess(() -> message, false)
+                            )
+                        )
                 )
         );
     }

@@ -46,10 +46,10 @@ public class BLibReloadListeners {
         var models = AzBakedModelCache.getInstance().loadModels(backgroundExecutor, resourceManager);
 
         return CompletableFuture.allOf(animations, models)
-                .thenCompose(stage::wait)
-                .thenAcceptAsync(ignored -> {
-                    AzBakedAnimationCache.getInstance().apply(animations.join());
-                    AzBakedModelCache.getInstance().apply(models.join());
-                }, gameExecutor);
+            .thenCompose(stage::wait)
+            .thenAcceptAsync(ignored -> {
+                AzBakedAnimationCache.getInstance().apply(animations.join());
+                AzBakedModelCache.getInstance().apply(models.join());
+            }, gameExecutor);
     }
 }

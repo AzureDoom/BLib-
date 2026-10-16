@@ -34,6 +34,8 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
 
     private final Predicate<ItemDisplayContext> shouldAnimateInContext;
 
+    private final Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider;
+
     private AzItemRendererConfig(
         Supplier<AzAnimator<UUID, ItemStack>> animatorProvider,
         Function<ItemStack, ResourceLocation> modelLocationProvider,
@@ -49,6 +51,7 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
         boolean useEntityGuiLighting,
         boolean useNewOffset,
         Predicate<ItemDisplayContext> shouldAnimateInContext,
+        Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider,
         BiFunction<AzRendererPipeline<UUID, ItemStack>, AzLayerRenderer<UUID, ItemStack>, AzModelRenderer<UUID, ItemStack>> modelRendererProvider,
         Function<AzRendererPipeline<UUID, ItemStack>, AzRendererPipelineContext<UUID, ItemStack>> pipelineContextFunction,
         BiFunction<@Nullable ItemStack, AzBone, @Nullable ResourceLocation> boneTextureOverrideProvider,
@@ -76,6 +79,7 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
         this.useEntityGuiLighting = useEntityGuiLighting;
         this.useNewOffset = useNewOffset;
         this.shouldAnimateInContext = shouldAnimateInContext;
+        this.animatorViewProvider = animatorViewProvider;
     }
 
     public boolean useEntityGuiLighting() {
@@ -88,6 +92,12 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
 
     public boolean shouldAnimateInContext(ItemDisplayContext context) {
         return shouldAnimateInContext.test(context);
+    }
+
+    /** @return which of the stack's animators renders in the given display context. */
+    public com.blib.api.client.animation.v1.animator.AzItemAnimatorView animatorView(ItemDisplayContext context) {
+        var view = animatorViewProvider.apply(context);
+        return view != null ? view : com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT;
     }
 
     public static Builder builder(
@@ -111,6 +121,8 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
         private boolean useNewOffset;
 
         private Predicate<ItemDisplayContext> shouldAnimateInContext;
+
+        private Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider = $ -> com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT;
 
         protected Builder(
             Function<ItemStack, ResourceLocation> modelLocationProvider,
@@ -297,6 +309,34 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
             return this;
         }
 
+        /**
+         * Gives the first-person hand contexts their own animator, separate from the one used for third person and
+         * every other context. Each animator has its own controllers, bone state and timer, so the two views can play
+         * different animations at the same time (for example an aim-down-sights fire in first person and a hip fire in
+         * third person). <br>
+         * Target a view with {@code AzCommand#dispatchForItemFirstPerson}, {@code AzCommand#dispatchForItemThirdPerson}
+         * or {@code AzCommand#dispatchForItem(Entity, T, AzItemAnimatorView)}; the plain
+         * {@code AzCommand#dispatchForItem(Entity, T)} still plays on both. (Ported from AzureLib, Oct 14.)
+         *
+         * @return The current instance of the {@code Builder} for method chaining.
+         */
+        public Builder useSeparateFirstPersonAnimator() {
+            this.animatorViewProvider = com.blib.api.client.animation.v1.animator.AzItemAnimatorView::fromDisplayContext;
+            return this;
+        }
+
+        /**
+         * Sets which of the stack's animators renders in each {@link ItemDisplayContext}. The default sends every
+         * context to {@code DEFAULT}; {@link #useSeparateFirstPersonAnimator()} is the common case.
+         *
+         * @param animatorViewProvider maps a display context to the animator view used to render it.
+         * @return The current instance of the {@code Builder} for method chaining.
+         */
+        public Builder setAnimatorViewProvider(Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider) {
+            this.animatorViewProvider = animatorViewProvider;
+            return this;
+        }
+
         public Builder disableAnimationInAllContexts() {
             this.shouldAnimateInContext = context -> false;
             return this;
@@ -321,6 +361,7 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
                 useEntityGuiLighting,
                 useNewOffset,
                 shouldAnimateInContext,
+                animatorViewProvider,
                 baseConfig::modelRendererProvider,
                 baseConfig::pipelineContext,
                 baseConfig::boneTextureOverrideProvider,

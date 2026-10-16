@@ -1,23 +1,23 @@
 package com.blib.internal.client.animation.track.keyframe;
 
-import com.blib.api.client.animation.v1.keyframe.AzKeyframeCallbacks;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 
-import com.blib.api.client.animation.v1.track.AzAnimationTrack;
+import com.blib.api.client.animation.v1.keyframe.AzKeyframeCallbacks;
+import com.blib.api.client.animation.v1.keyframe.data.KeyFrameData;
 import com.blib.api.client.animation.v1.keyframe.event.AzCustomInstructionKeyframeEvent;
 import com.blib.api.client.animation.v1.keyframe.event.AzParticleKeyframeEvent;
 import com.blib.api.client.animation.v1.keyframe.event.AzSoundKeyframeEvent;
+import com.blib.api.client.animation.v1.track.AzAnimationTrack;
 import com.blib.internal.client.animation.primitive.AzQueuedAnimation;
-import com.blib.api.client.animation.v1.keyframe.data.KeyFrameData;
 
 /**
  * AzKeyframeCallbackHandler acts as a handler for managing animation keyframe events such as sound, particle, or custom
- * events during a specific animation. It works in conjunction with an animation track and a set of keyframe
- * callbacks, executing them as appropriate based on the animation's progress. <br>
+ * events during a specific animation. It works in conjunction with an animation track and a set of keyframe callbacks,
+ * executing them as appropriate based on the animation's progress. <br>
  * This class is generic and operates on a user-defined animatable type to handle various keyframe events related to
  * animations.
  *

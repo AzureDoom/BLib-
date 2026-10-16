@@ -19,13 +19,16 @@ public abstract class ItemStackMixin_AzItemAnimatorCache implements AzAnimatorAc
     @Override
     public void setAnimator(@Nullable AzAnimator<UUID, ItemStack> animator) {
         var itemStack = AzureLibUtil.<ItemStack>self(this);
-        AzIdentifiableItemStackAnimatorCache.getInstance().add(itemStack, (AzItemAnimator) animator);
+        // Stored for the view currently being rendered on this thread (DEFAULT outside rendering).
+        AzIdentifiableItemStackAnimatorCache.getInstance()
+            .add(itemStack, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.current(), (AzItemAnimator) animator);
     }
 
     @Override
     public @Nullable AzAnimator<UUID, ItemStack> getAnimatorOrNull() {
         var self = AzureLibUtil.<ItemStack>self(this);
         var uuid = self.getComponents().get(BLibDataComponents.AZ_ID.get());
-        return AzIdentifiableItemStackAnimatorCache.getInstance().getOrNull(uuid);
+        return AzIdentifiableItemStackAnimatorCache.getInstance()
+            .getOrNull(uuid, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.current());
     }
 }

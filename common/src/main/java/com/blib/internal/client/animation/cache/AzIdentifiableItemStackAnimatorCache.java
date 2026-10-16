@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.blib.api.client.animation.v1.animator.AzItemAnimator;
+import com.blib.api.client.animation.v1.animator.AzItemAnimatorView;
 import com.blib.internal.common.diagnostics.BLibDiagnosticSwitches;
 import com.blib.mod.common.registry.init.BLibDataComponents;
 
@@ -41,7 +42,17 @@ public class AzIdentifiableItemStackAnimatorCache {
 
     private static final AzIdentifiableItemStackAnimatorCache INSTANCE = new AzIdentifiableItemStackAnimatorCache();
 
-    private final Map<UUID, Entry> animatorsByUuid = new HashMap<>();
+    /**
+     * Oct 14 (AzureLib port: separate first-person item animators) - one map per {@link AzItemAnimatorView}, so a
+     * stack can have a first-person animator alongside its default one.
+     */
+    private final Map<AzItemAnimatorView, Map<UUID, Entry>> animatorsByView = new java.util.EnumMap<>(AzItemAnimatorView.class);
+
+    {
+        for (var view : AzItemAnimatorView.values()) {
+            animatorsByView.put(view, new HashMap<>());
+        }
+    }
 
     private long lastSweepMillis;
 
@@ -51,22 +62,60 @@ public class AzIdentifiableItemStackAnimatorCache {
 
     private AzIdentifiableItemStackAnimatorCache() {}
 
+    /** Registers the {@link AzItemAnimatorView#DEFAULT default} animator for the given stack. */
     public synchronized void add(ItemStack itemStack, AzItemAnimator animator) {
+        add(itemStack, AzItemAnimatorView.DEFAULT, animator);
+    }
+
+    public synchronized void add(ItemStack itemStack, AzItemAnimatorView view, AzItemAnimator animator) {
         var uuid = itemStack.get(BLibDataComponents.AZ_ID.get());
 
-        if (uuid != null) {
+        if (uuid != null && animator != null) {
             var now = Util.getMillis();
-            animatorsByUuid.computeIfAbsent(uuid, $ -> new Entry(animator, now));
+            animatorsByView.get(view).computeIfAbsent(uuid, $ -> new Entry(animator, now));
             sweepIfDue(now);
         }
     }
 
+    /** @return the {@link AzItemAnimatorView#DEFAULT default} animator for the given stack id, or null. */
     public synchronized @Nullable AzItemAnimator getOrNull(UUID uuid) {
+        return getOrNull(uuid, AzItemAnimatorView.DEFAULT);
+    }
+
+    /**
+     * Runs {@code action} on the animator for {@code view}, or on every existing animator of the stack when
+     * {@code view} is null. Views that have no animator yet are skipped.
+     */
+    public void forEach(@Nullable UUID uuid, @Nullable AzItemAnimatorView view, java.util.function.Consumer<AzItemAnimator> action) {
+        if (uuid == null) {
+            return;
+        }
+
+        if (view != null) {
+            var animator = getOrNull(uuid, view);
+
+            if (animator != null) {
+                action.accept(animator);
+            }
+
+            return;
+        }
+
+        for (var each : AzItemAnimatorView.values()) {
+            var animator = getOrNull(uuid, each);
+
+            if (animator != null) {
+                action.accept(animator);
+            }
+        }
+    }
+
+    public synchronized @Nullable AzItemAnimator getOrNull(UUID uuid, AzItemAnimatorView view) {
         if (uuid == null) {
             return null;
         }
 
-        var entry = animatorsByUuid.get(uuid);
+        var entry = animatorsByView.get(view).get(uuid);
 
         if (entry == null) {
             return null;
@@ -81,7 +130,13 @@ public class AzIdentifiableItemStackAnimatorCache {
 
     /** How many item animators are held right now. */
     public synchronized int size() {
-        return animatorsByUuid.size();
+        var total = 0;
+
+        for (var animators : animatorsByView.values()) {
+            total += animators.size();
+        }
+
+        return total;
     }
 
     private void sweepIfDue(long now) {
@@ -91,7 +146,9 @@ public class AzIdentifiableItemStackAnimatorCache {
 
         lastSweepMillis = now;
         var cutoff = now - BLibDiagnosticSwitches.ITEM_ANIMATOR_EXPIRY_MILLIS;
-        animatorsByUuid.values().removeIf(entry -> entry.lastUsedMillis < cutoff);
+        for (var animators : animatorsByView.values()) {
+            animators.values().removeIf(entry -> entry.lastUsedMillis < cutoff);
+        }
     }
 
     private static final class Entry {

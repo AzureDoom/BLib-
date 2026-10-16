@@ -1,8 +1,8 @@
 package com.blib.internal.common.molang.functions.query;
 
+import com.blib.internal.common.molang.MolangQueryContext;
 import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.math.functions.Function;
-import com.blib.internal.common.molang.MolangQueryContext;
 
 /**
  * Base class for query functions that read game state through the current {@link MolangQueryContext}.

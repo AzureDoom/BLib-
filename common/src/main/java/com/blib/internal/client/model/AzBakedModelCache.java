@@ -62,35 +62,35 @@ public class AzBakedModelCache extends AzResourceCache {
      * </p>
      */
     public CompletableFuture<Map<ResourceLocation, AzBakedModel>> loadModels(
-            Executor backgroundExecutor,
-            ResourceManager resourceManager
+        Executor backgroundExecutor,
+        ResourceManager resourceManager
     ) {
         return CompletableFuture.supplyAsync(() -> loadDefaultBakedModel(resourceManager), backgroundExecutor)
-                .thenCompose(defaultBakedModelResult -> {
-                    pendingDefaultModel = defaultBakedModelResult.isOk() ? defaultBakedModelResult.unwrap() : null;
+            .thenCompose(defaultBakedModelResult -> {
+                pendingDefaultModel = defaultBakedModelResult.isOk() ? defaultBakedModelResult.unwrap() : null;
 
-                    return loadResources(
-                            backgroundExecutor,
-                            resourceManager,
-                            MODELS_PATH,
-                            resourceLocation -> {
-                                // The default model is published through AzBakedModel.setDefault, not looked up by id.
-                                if (Objects.equals(DEFAULT_MODEL_RESOURCE_LOCATION, resourceLocation)) {
-                                    return null;
-                                }
+                return loadResources(
+                    backgroundExecutor,
+                    resourceManager,
+                    MODELS_PATH,
+                    resourceLocation -> {
+                        // The default model is published through AzBakedModel.setDefault, not looked up by id.
+                        if (Objects.equals(DEFAULT_MODEL_RESOURCE_LOCATION, resourceLocation)) {
+                            return null;
+                        }
 
-                                var result = loadAndBakeModel(resourceManager, resourceLocation, defaultBakedModelResult);
+                        var result = loadAndBakeModel(resourceManager, resourceLocation, defaultBakedModelResult);
 
-                                // Errors were already logged; null leaves the model out of the map.
-                                return result.isOk() ? result.unwrap() : null;
-                            }
-                    );
-                });
+                        // Errors were already logged; null leaves the model out of the map.
+                        return result.isOk() ? result.unwrap() : null;
+                    }
+                );
+            });
     }
 
     /**
-     * Replaces the live cache with a freshly loaded one and publishes the default model baked alongside it. Entries from
-     * resources that no longer exist are dropped. Call on the game thread.
+     * Replaces the live cache with a freshly loaded one and publishes the default model baked alongside it. Entries
+     * from resources that no longer exist are dropped. Call on the game thread.
      */
     public void apply(Map<ResourceLocation, AzBakedModel> models) {
         var defaultModel = pendingDefaultModel;
@@ -121,28 +121,28 @@ public class AzBakedModelCache extends AzResourceCache {
 
     private Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> loadDefaultBakedModel(ResourceManager resourceManager) {
         var defaultModelResult = ResourceFileLoader.loadObjectFromFile(
-                JsonUtil.GEO_GSON,
-                Model.class,
-                DEFAULT_MODEL_RESOURCE_LOCATION,
-                resourceManager
+            JsonUtil.GEO_GSON,
+            Model.class,
+            DEFAULT_MODEL_RESOURCE_LOCATION,
+            resourceManager
         );
 
         var defaultBakedModelResult = defaultModelResult.map(
-                model -> bakeModel(DEFAULT_MODEL_RESOURCE_LOCATION, model)
+            model -> bakeModel(DEFAULT_MODEL_RESOURCE_LOCATION, model)
         );
 
         if (defaultBakedModelResult instanceof Err<AzBakedModel, ResourceFileLoader.ObjectLoadError> err) {
             err.unwrapErr()
-                    .log(LOGGER, Level.ERROR, "Failed to load default model '{}'.", "", DEFAULT_MODEL_RESOURCE_LOCATION);
+                .log(LOGGER, Level.ERROR, "Failed to load default model '{}'.", "", DEFAULT_MODEL_RESOURCE_LOCATION);
         }
 
         return defaultBakedModelResult;
     }
 
     private Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> loadAndBakeModel(
-            ResourceManager resourceManager,
-            ResourceLocation resourceLocation,
-            Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> defaultBakedModelResult
+        ResourceManager resourceManager,
+        ResourceLocation resourceLocation,
+        Result<AzBakedModel, ResourceFileLoader.ObjectLoadError> defaultBakedModelResult
     ) {
         var result = ResourceFileLoader.loadObjectFromFile(JsonUtil.GEO_GSON, Model.class, resourceLocation, resourceManager);
 
@@ -162,7 +162,7 @@ public class AzBakedModelCache extends AzResourceCache {
 
     private AzBakedModel bakeModel(ResourceLocation resource, Model model) {
         return AzBakedModelFactoryRegistry
-                .getForNamespace(resource.getNamespace())
-                .constructGeoModel(GeometryTree.fromModel(model));
+            .getForNamespace(resource.getNamespace())
+            .constructGeoModel(GeometryTree.fromModel(model));
     }
 }

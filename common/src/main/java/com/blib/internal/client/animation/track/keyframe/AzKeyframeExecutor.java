@@ -6,17 +6,17 @@ import java.util.NoSuchElementException;
 import java.util.function.DoubleSupplier;
 
 import com.blib.api.client.animation.v1.track.AzAnimationTrack;
-import com.blib.internal.client.animation.track.AzBoneAnimationQueueCache;
+import com.blib.api.common.spatial.v1.Axis;
 import com.blib.internal.client.animation.primitive.AzQueuedAnimation;
-import com.blib.internal.common.molang.math.IValue;
+import com.blib.internal.client.animation.track.AzBoneAnimationQueueCache;
 import com.blib.internal.common.molang.MolangQueries;
 import com.blib.internal.common.molang.MolangVariableRef;
-import com.blib.api.common.spatial.v1.Axis;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * AzKeyframeExecutor is a specialized implementation of {@link AzAbstractKeyframeExecutor}, designed to handle
- * keyframe-based animations for animatable objects. It delegates animation control to an {@link AzAnimationTrack}
- * and manages bone animation queues through an {@link AzBoneAnimationQueueCache}. <br>
+ * keyframe-based animations for animatable objects. It delegates animation control to an {@link AzAnimationTrack} and
+ * manages bone animation queues through an {@link AzBoneAnimationQueueCache}. <br>
  * This class processes and applies transformations such as rotation, position, and scale to bone animations, based on
  * the current tick time and the keyframes associated with each bone animation.
  *
@@ -45,8 +45,8 @@ public class AzKeyframeExecutor<T> extends AzAbstractKeyframeExecutor {
     /**
      * Handle the current animation's state modifications and translations
      *
-     * @param crashWhenCantFindBone Whether the track should throw an exception when unable to find the required
-     *                              bone, or continue with the remaining bones
+     * @param crashWhenCantFindBone Whether the track should throw an exception when unable to find the required bone,
+     *                              or continue with the remaining bones
      */
     public void execute(@NotNull AzQueuedAnimation currentAnimation, T animatable, boolean crashWhenCantFindBone) {
         var keyframeCallbackHandler = animationTrack.keyframeManager().keyframeCallbackHandler();

@@ -97,8 +97,8 @@ public abstract class AzRendererPipeline<K, T> implements AzPhasedRenderer<K, T>
     /**
      * Re-renders the model for a render layer.
      *
-     * @param applyAnimation whether the animator should run again for this pass. Normally {@code false}: the bones
-     *                       are already posed from the main pass. Pass {@code true} when the layer has swapped in a
+     * @param applyAnimation whether the animator should run again for this pass. Normally {@code false}: the bones are
+     *                       already posed from the main pass. Pass {@code true} when the layer has swapped in a
      *                       different model (see {@link AzRendererPipelineContext#setBakedModel}) that still needs
      *                       posing.
      */

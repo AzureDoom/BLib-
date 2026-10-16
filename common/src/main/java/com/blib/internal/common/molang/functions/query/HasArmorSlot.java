@@ -1,7 +1,7 @@
 package com.blib.internal.common.molang.functions.query;
 
-import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.MolangQueryContext;
+import com.blib.internal.common.molang.math.IValue;
 
 /**
  * {@code query.has_armor_slot(slot)}: 1 if the armor slot (0 = head, 1 = chest, 2 = legs, 3 = feet) has an item.

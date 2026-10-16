@@ -100,17 +100,50 @@ public final class BLibPostEffectPipeline {
             );
 
             var category = pixel.get(0) & 0xFF;
+            // Oct 10 - the mask's G channel is the background-entity lane flag; the material-id attachment is read too.
+            // Together they show what each vision mode will decide about the mob under the crosshair, so a wrong
+            // "shows in both modes" can be traced to the values BLib wrote rather than guessed at.
+            var backgroundFlag = pixel.get(1) & 0xFF;
+            var materialId = blib$readCentreRed(BLibMainTargetMRT.entityMaterialIdTextureId(), target);
 
             BLib.LOGGER.info(
-                "[BLib][maskProbe] category={} ({}) depthCapturesSinceLastTick={} fogStart={} fogEnd={}",
+                "[BLib][maskProbe] category={} ({}) backgroundFlag={} materialId={} attachedToMain={} packActive={} depthCapturesSinceLastTick={} fogStart={} fogEnd={}",
                 category,
                 blib$describeCategory(category),
+                backgroundFlag,
+                materialId,
+                BLibMainTargetMRT.isAttachedToMainTarget(),
+                BLibIrisCompat.isShaderPackActive(),
                 BLibDepthSnapshot.consumeCaptureCount(),
                 RenderSystem.getShaderFogStart(),
                 RenderSystem.getShaderFogEnd()
             );
         } finally {
             GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, previousFramebuffer);
+            GL30.glDeleteFramebuffers(scratch);
+        }
+    }
+
+    /** Oct 10 - DIAGNOSTIC ONLY (maskProbe): the red byte at the screen centre of an attachment texture, or -1. */
+    private static int blib$readCentreRed(int textureId, com.mojang.blaze3d.pipeline.RenderTarget target) {
+        if (textureId <= 0) {
+            return -1;
+        }
+
+        var scratch = GL30.glGenFramebuffers();
+
+        try {
+            GL30.glBindFramebuffer(GL30.GL_FRAMEBUFFER, scratch);
+            GL30.glFramebufferTexture2D(GL30.GL_FRAMEBUFFER, GL30.GL_COLOR_ATTACHMENT0, GL11.GL_TEXTURE_2D, textureId, 0);
+
+            if (GL30.glCheckFramebufferStatus(GL30.GL_FRAMEBUFFER) != GL30.GL_FRAMEBUFFER_COMPLETE) {
+                return -1;
+            }
+
+            var pixel = BufferUtils.createByteBuffer(4);
+            GL11.glReadPixels(target.width / 2, target.height / 2, 1, 1, GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, pixel);
+            return pixel.get(0) & 0xFF;
+        } finally {
             GL30.glDeleteFramebuffers(scratch);
         }
     }

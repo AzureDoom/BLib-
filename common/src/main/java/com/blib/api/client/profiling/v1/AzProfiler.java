@@ -3,9 +3,8 @@ package com.blib.api.client.profiling.v1;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Stage hooks for external profilers. BLib calls {@link #begin} and {@link #end} around each
- * {@link AzProfileStage}; with no listener installed each call is a field read and a null check, which the JIT inlines
- * to effectively nothing.
+ * Stage hooks for external profilers. BLib calls {@link #begin} and {@link #end} around each {@link AzProfileStage};
+ * with no listener installed each call is a field read and a null check, which the JIT inlines to effectively nothing.
  * <p>
  * Only one listener is active at a time. This is a development aid, not an event bus.
  */

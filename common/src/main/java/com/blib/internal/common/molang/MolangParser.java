@@ -15,17 +15,17 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.DoubleSupplier;
 
-import com.blib.mod.BLib;
-import com.blib.internal.common.molang.math.Constant;
-import com.blib.internal.common.molang.math.IValue;
-import com.blib.internal.common.molang.math.MathBuilder;
-import com.blib.internal.common.molang.math.Variable;
-import com.blib.internal.common.molang.math.functions.Function;
 import com.blib.internal.common.molang.expressions.MolangCompoundValue;
 import com.blib.internal.common.molang.expressions.MolangValue;
 import com.blib.internal.common.molang.expressions.MolangVariableHolder;
 import com.blib.internal.common.molang.functions.*;
 import com.blib.internal.common.molang.functions.query.*;
+import com.blib.internal.common.molang.math.Constant;
+import com.blib.internal.common.molang.math.IValue;
+import com.blib.internal.common.molang.math.MathBuilder;
+import com.blib.internal.common.molang.math.Variable;
+import com.blib.internal.common.molang.math.functions.Function;
+import com.blib.mod.BLib;
 
 /**
  * Utility class for parsing and utilising MoLang functions and expressions

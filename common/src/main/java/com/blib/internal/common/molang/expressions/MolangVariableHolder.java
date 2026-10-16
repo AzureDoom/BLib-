@@ -5,9 +5,9 @@
  */
 package com.blib.internal.common.molang.expressions;
 
-import com.blib.mod.BLib;
 import com.blib.internal.common.molang.math.IValue;
 import com.blib.internal.common.molang.math.Variable;
+import com.blib.mod.BLib;
 
 /**
  * Extension of {@link MolangValue} that additionally sets the value of a provided {@link Variable} when being called.
