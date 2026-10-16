@@ -122,7 +122,8 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
 
         private Predicate<ItemDisplayContext> shouldAnimateInContext;
 
-        private Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider = $ -> com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT;
+        private Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider =
+            $ -> com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT;
 
         protected Builder(
             Function<ItemStack, ResourceLocation> modelLocationProvider,
@@ -332,7 +333,9 @@ public class AzItemRendererConfig extends AzRendererConfig<UUID, ItemStack> {
          * @param animatorViewProvider maps a display context to the animator view used to render it.
          * @return The current instance of the {@code Builder} for method chaining.
          */
-        public Builder setAnimatorViewProvider(Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider) {
+        public Builder setAnimatorViewProvider(
+            Function<ItemDisplayContext, com.blib.api.client.animation.v1.animator.AzItemAnimatorView> animatorViewProvider
+        ) {
             this.animatorViewProvider = animatorViewProvider;
             return this;
         }

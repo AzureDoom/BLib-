@@ -43,8 +43,8 @@ public class AzIdentifiableItemStackAnimatorCache {
     private static final AzIdentifiableItemStackAnimatorCache INSTANCE = new AzIdentifiableItemStackAnimatorCache();
 
     /**
-     * Oct 14 (AzureLib port: separate first-person item animators) - one map per {@link AzItemAnimatorView}, so a
-     * stack can have a first-person animator alongside its default one.
+     * Oct 14 (AzureLib port: separate first-person item animators) - one map per {@link AzItemAnimatorView}, so a stack
+     * can have a first-person animator alongside its default one.
      */
     private final Map<AzItemAnimatorView, Map<UUID, Entry>> animatorsByView = new java.util.EnumMap<>(AzItemAnimatorView.class);
 

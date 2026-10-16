@@ -133,12 +133,12 @@ public final class BLibGbufferUniforms {
     /**
      * Oct 9 - FORGETS EVERY UNIFORM LOCATION LOOKED UP SO FAR. Called whenever a shader is compiled.
      * <p>
-     * [tester] "its whatever refresh f3 + T does ... doing that makes the mask stop picking up mobs ... the more you press
-     * it the more it breaks". The four location caches above are keyed by the GL PROGRAM ID and were never cleared.
-     * F3+T (and a shader-pack reload) deletes every shader program and compiles new ones - and OpenGL hands the freed
-     * ids straight back out, to DIFFERENT shaders. A recycled id then hit the old entry: a location from another
-     * program, so the held-item / background-entity / material-id values were written into the wrong uniform or not
-     * written at all, and mobs stopped being classified in the mask (EM saw nothing, thermal saw no bodies). Every
+     * [tester] "its whatever refresh f3 + T does ... doing that makes the mask stop picking up mobs ... the more you
+     * press it the more it breaks". The four location caches above are keyed by the GL PROGRAM ID and were never
+     * cleared. F3+T (and a shader-pack reload) deletes every shader program and compiles new ones - and OpenGL hands
+     * the freed ids straight back out, to DIFFERENT shaders. A recycled id then hit the old entry: a location from
+     * another program, so the held-item / background-entity / material-id values were written into the wrong uniform or
+     * not written at all, and mobs stopped being classified in the mask (EM saw nothing, thermal saw no bodies). Every
      * further reload shuffled more ids, so it got worse with each press. Locations are cheap to look up again, and
      * compiles are rare, so the caches simply start over.
      */

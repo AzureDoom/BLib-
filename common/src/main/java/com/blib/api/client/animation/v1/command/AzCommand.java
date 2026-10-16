@@ -111,8 +111,9 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
     /**
      * Dispatches to every animator the stack has. If the item's renderer uses a separate first-person animator
      * ({@code AzItemRendererConfig.Builder#useSeparateFirstPersonAnimator()}), both the first-person and third-person
-     * views play it; use {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)}
-     * to target only one of them.
+     * views play it; use
+     * {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} to target
+     * only one of them.
      */
     public void dispatchForItem(Entity entity, T itemStack) {
         dispatchForItem(entity, itemStack, null);
@@ -150,12 +151,20 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
             );
     }
 
-    /** Shorthand for {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} with {@code FIRST_PERSON}. */
+    /**
+     * Shorthand for
+     * {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} with
+     * {@code FIRST_PERSON}.
+     */
     public void dispatchForItemFirstPerson(Entity entity, T itemStack) {
         dispatchForItem(entity, itemStack, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.FIRST_PERSON);
     }
 
-    /** Shorthand for {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} with {@code DEFAULT} (third person and every other context). */
+    /**
+     * Shorthand for
+     * {@link #dispatchForItem(Entity, Object, com.blib.api.client.animation.v1.animator.AzItemAnimatorView)} with
+     * {@code DEFAULT} (third person and every other context).
+     */
     public void dispatchForItemThirdPerson(Entity entity, T itemStack) {
         dispatchForItem(entity, itemStack, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT);
     }
