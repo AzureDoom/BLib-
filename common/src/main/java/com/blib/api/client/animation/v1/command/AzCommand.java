@@ -13,8 +13,10 @@ import java.util.Collections;
 import java.util.List;
 
 import com.blib.api.BLibAPI;
+import com.blib.api.client.animation.v1.animator.AzAnimator;
 import com.blib.api.client.animation.v1.command.policy.AzDispatchMode;
 import com.blib.internal.client.animation.AzAnimatorAccessor;
+import com.blib.internal.client.animation.dispatch.AzPendingDispatches;
 import com.blib.internal.client.animation.dispatch.command.action.AzAction;
 
 public record AzCommand<T>(List<AzAction<T>> actions) {
@@ -90,8 +92,8 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
     }
 
     public void dispatchForEntity(T entity) {
-        if (entity instanceof Entity mcEntity) {
-            validateClientSide(mcEntity.level(), "Entity", entity);
+        if (entity instanceof Entity mcEntity && !validateClientSide(mcEntity.level(), "Entity", entity)) {
+            return;
         }
         dispatch(entity);
     }
@@ -100,8 +102,8 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
         if (blockEntity instanceof BlockEntity mcBlockEntity) {
             var level = mcBlockEntity.getLevel();
 
-            if (level != null) {
-                validateClientSide(level, "BlockEntity", blockEntity);
+            if (level != null && !validateClientSide(level, "BlockEntity", blockEntity)) {
+                return;
             }
         }
 
@@ -135,12 +137,16 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
             return;
         }
 
-        validateClientSide(entity.level(), "ItemStack", stack);
+        if (!validateClientSide(entity.level(), "ItemStack", stack)) {
+            return;
+        }
 
         var uuid = stack.get(com.blib.mod.common.registry.init.BLibDataComponents.AZ_ID.get());
 
+        // AzureLib 3.1.22 (ported Oct 17): dispatchOrQueue, not forEach - a view with no animator yet (a stack that has
+        // not been drawn) keeps the command and gets it the moment its animator is created, instead of losing it.
         com.blib.internal.client.animation.cache.AzIdentifiableItemStackAnimatorCache.getInstance()
-            .forEach(
+            .dispatchOrQueue(
                 uuid,
                 view,
                 animator -> actions.forEach(
@@ -169,17 +175,38 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
         dispatchForItem(entity, itemStack, com.blib.api.client.animation.v1.animator.AzItemAnimatorView.DEFAULT);
     }
 
+    @SuppressWarnings("unchecked")
     private void dispatch(T animatable) {
         var animator = AzAnimatorAccessor.<Object, T>getOrNull(animatable);
 
         if (animator != null) {
             actions.forEach(action -> action.handle(animator));
+            return;
         }
+
+        // AzureLib 3.1.22 (ported Oct 17): no animator yet - the animatable has not been rendered. Hold the command and
+        // replay it when AzProvider creates the animator, so the first rendered frame already has its animation
+        // instead of the bind pose. See AzPendingDispatches for the cap and expiry BLib adds.
+        AzPendingDispatches.enqueue(
+            animatable,
+            created -> actions.forEach(action -> action.handle((AzAnimator<?, T>) created))
+        );
     }
 
-    private void validateClientSide(Level level, String type, Object animatable) {
+    /**
+     * @return {@code true} on the client. On the server it warns (throws in a dev environment) and returns
+     *         {@code false}, and the caller stops there.
+     *         <p>
+     *         ⚠ Oct 17: stopping is new, and needed now that a missing animator QUEUES the command. Server-side objects
+     *         never get an animator, so a server dispatch used to fall through harmlessly; with the queue it would park
+     *         entries in the client-side pending maps from the SERVER thread - and in singleplayer a server ItemStack
+     *         carries the same AZ_ID as its client copy, so its queued command would then play on the client, from a
+     *         call that is supposed to do nothing.
+     *         </p>
+     */
+    private boolean validateClientSide(Level level, String type, Object animatable) {
         if (level.isClientSide()) {
-            return;
+            return true;
         }
 
         if (BLibAPI.isDevelopmentEnvironment()) {
@@ -187,5 +214,6 @@ public record AzCommand<T>(List<AzAction<T>> actions) {
         }
 
         LOGGER.warn(SERVER_SIDE_DISPATCH_MESSAGE_LOG, type, animatable);
+        return false;
     }
 }

@@ -45,6 +45,8 @@ public class AzBakedModelCache extends AzResourceCache {
 
     private volatile Map<ResourceLocation, AzBakedModel> bakedModels = Map.of();
 
+    private volatile int generation;
+
     /**
      * The default model baked by the most recent {@link #loadModels} call, published as the global default in
      * {@link #apply(Map)}. Written on the background executor; the reload future's completion makes it visible to the
@@ -102,6 +104,17 @@ public class AzBakedModelCache extends AzResourceCache {
         }
 
         this.bakedModels = models;
+        this.generation++;
+    }
+
+    /**
+     * Oct 17 - bumped every time {@link #apply} publishes a reload. Every model baked before it is stale. Lets a cache
+     * holding per-instance animators tell "this animator's model was replaced by a reload" (rebuild it) apart from "a
+     * different renderer drew the same stack with a different model" (keep it) - see
+     * {@code AzIdentifiableItemStackAnimatorCache#add}.
+     */
+    public int generation() {
+        return generation;
     }
 
     public @Nullable AzBakedModel getOrNull(ResourceLocation resourceLocation) {

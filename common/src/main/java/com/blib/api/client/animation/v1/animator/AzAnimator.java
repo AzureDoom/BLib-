@@ -71,6 +71,9 @@ public abstract class AzAnimator<K, T> {
 
     private float molangPartialTicks;
 
+    /** AzureLib 3.1.22: set by the first {@link #animate} call, which runs {@link #onFirstAnimate} once. */
+    private boolean hasAnimated;
+
     private final DoubleSupplier lifetimeSupplier = () -> molangAnimTime / 20d;
 
     private final DoubleSupplier actorCountSupplier = () -> {
@@ -138,6 +141,17 @@ public abstract class AzAnimator<K, T> {
         return ctx;
     }
 
+    /**
+     * AzureLib 3.1.22 (ported Oct 17) - {@link #getOrCreateContext(Object)} that also binds the animatable to the
+     * context, so anything that runs before the first {@link #animate} call (queued commands replayed when the animator
+     * is created, {@link #onFirstAnimate}) sees a non-null {@link AzAnimationContext#animatable()}.
+     */
+    public AzAnimationContext<T> getOrCreateContext(K uuid, T animatable) {
+        var ctx = getOrCreateContext(uuid);
+        ctx.setAnimatable(animatable);
+        return ctx;
+    }
+
     public abstract void registerTracks(AzAnimationTrackContainer<T> animationTrackContainer);
 
     public abstract @NotNull ResourceLocation getAnimationLocation(T animatable);
@@ -151,6 +165,11 @@ public abstract class AzAnimator<K, T> {
 
         if (updateTimer) {
             timer.tick();
+        }
+
+        if (!hasAnimated) {
+            hasAnimated = true;
+            onFirstAnimate(animatable);
         }
 
         AzProfiler.begin(AzProfileStage.MOLANG_SETUP, animatable);
@@ -258,6 +277,20 @@ public abstract class AzAnimator<K, T> {
             );
         }
     }
+
+    /**
+     * AzureLib 3.1.22 (ported Oct 17) - called once, on this animator's first {@link #animate} call, right before its
+     * tracks update for the first time. Commands dispatched here (e.g. {@code MY_COMMAND.dispatchForEntity(entity)})
+     * apply on that same frame, so the animatable never renders a frame without an animation.
+     * <p>
+     * This is the place to start a spawn or initial animation. Prefer it over keying off {@code tickCount == 0}: a
+     * freshly spawned entity is not guaranteed to render before its first client tick. It runs again if the animator is
+     * replaced, e.g. when the model changes on a resource reload.
+     * </p>
+     *
+     * @param animatable the animatable being animated for the first time
+     */
+    protected void onFirstAnimate(T animatable) {}
 
     public AzAnimationContext<T> context() {
         return currentContext;

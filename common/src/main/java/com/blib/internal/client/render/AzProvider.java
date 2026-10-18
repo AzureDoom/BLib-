@@ -12,6 +12,7 @@ import java.util.function.Supplier;
 import com.blib.api.client.animation.v1.animator.AzAnimator;
 import com.blib.api.client.model.v1.AzBakedModel;
 import com.blib.internal.client.animation.AzAnimatorAccessor;
+import com.blib.internal.client.animation.dispatch.AzPendingDispatches;
 import com.blib.internal.client.model.AzBakedModelCache;
 
 public class AzProvider<K, T> {
@@ -100,7 +101,8 @@ public class AzProvider<K, T> {
         var cachedAnimator = animatorSupplier.get();
 
         if (cachedAnimator != null) {
-            var ctx = cachedAnimator.getOrCreateContext(UUIDProvider.apply(animatable));
+            // AzureLib 3.1.22: bind the animatable now, so replayed commands below see a non-null context animatable.
+            var ctx = cachedAnimator.getOrCreateContext(UUIDProvider.apply(animatable), animatable);
 
             if (shared != null) {
                 ctx.boneCache().setActiveModel(shared); // setActiveModel deep-copies internally
@@ -108,6 +110,11 @@ public class AzProvider<K, T> {
 
             cachedAnimator.registerTracks(cachedAnimator.getAnimationTrackContainer());
             accessor.setAnimator(cachedAnimator);
+            // AzureLib 3.1.22: replay anything dispatched before this animator existed - AFTER the tracks are
+            // registered (a command targets a track by name) and the accessor is set (a replayed command that
+            // dispatches again must find this animator, not queue again). Item stacks are flushed inside setAnimator
+            // by AzIdentifiableItemStackAnimatorCache, per view; this covers entities and block entities.
+            AzPendingDispatches.flush(animatable, cachedAnimator);
         }
 
         return cachedAnimator;

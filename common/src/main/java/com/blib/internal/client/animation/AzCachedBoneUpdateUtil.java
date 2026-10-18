@@ -1,10 +1,28 @@
 package com.blib.internal.client.animation;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.util.Map;
 
 import com.blib.api.client.model.v1.AzBone;
 import com.blib.internal.client.model.AzBoneSnapshot;
 
+/**
+ * Eases bones that no track animated this frame back towards their bind pose.
+ * <p>
+ * AzureLib 3.1.23 (ported Oct 17): the {@link AzBoneSnapshot} overloads now return whether the channel has SETTLED (no
+ * snapshot to ease from, or the reset has finished), so {@link com.blib.internal.client.animation.cache.AzBoneCache}
+ * can stop visiting bones that are at rest. They return {@code false} when the bone was changed this frame or is still
+ * easing back. The {@code Map} overloads look the snapshot up by name and are kept for compatibility.
+ * </p>
+ * <p>
+ * BLib addition: a bone reset time of 0 or less snaps straight to the bind pose. It used to divide by it, and
+ * {@code (animTime - lastReset) / 0} is NaN whenever the two are equal - which is every frame a bone STOPS being
+ * animated, since stopping a channel stamps lastReset with this frame's animTime just above - so the bone went NaN.
+ * Measured Oct 17: 55,398 NaN bone values over a 600-frame test run before, 0 after. Only reachable with
+ * {@code AzAnimatorConfig.withBoneResetTime(0)}; the default is 1.
+ * </p>
+ */
 public class AzCachedBoneUpdateUtil {
 
     /**
@@ -32,31 +50,33 @@ public class AzCachedBoneUpdateUtil {
     /**
      * {@link #updateCachedBonePosition(AzBone, Map, double, double)} with the bone's snapshot already looked up, so
      * per-frame callers can skip the by-name map lookup.
+     *
+     * @return {@code true} if the channel is at rest (no snapshot, or fully eased back); {@code false} if the bone was
+     *         changed this frame or is still easing back
      */
-    public static void updateCachedBonePosition(
+    public static boolean updateCachedBonePosition(
         AzBone bone,
-        AzBoneSnapshot saveSnapshot,
+        @Nullable AzBoneSnapshot saveSnapshot,
         double animTime,
         double resetTickLength
     ) {
         if (bone.hasPositionChanged()) {
-            return;
+            return false;
+        }
+
+        if (saveSnapshot == null) {
+            return true;
         }
 
         var initialSnapshot = bone.getInitialAzSnapshot();
-
-        if (saveSnapshot == null) {
-            return;
-        }
 
         if (saveSnapshot.isPosAnimInProgress()) {
             saveSnapshot.stopPosAnim(animTime);
         }
 
-        var percentageReset = Math.min(
-            (animTime - saveSnapshot.getLastResetPositionTick()) / resetTickLength,
-            1
-        );
+        var percentageReset = resetTickLength > 0
+            ? Math.min((animTime - saveSnapshot.getLastResetPositionTick()) / resetTickLength, 1)
+            : 1;
 
         bone.setPosX(
             (float) Interpolations.lerp(
@@ -82,7 +102,10 @@ public class AzCachedBoneUpdateUtil {
 
         if (percentageReset >= 1) {
             saveSnapshot.updateOffset(bone.getPosX(), bone.getPosY(), bone.getPosZ());
+            return true;
         }
+
+        return false;
     }
 
     /**
@@ -110,31 +133,33 @@ public class AzCachedBoneUpdateUtil {
     /**
      * {@link #updateCachedBoneRotation(AzBone, Map, double, double)} with the bone's snapshot already looked up, so
      * per-frame callers can skip the by-name map lookup.
+     *
+     * @return {@code true} if the channel is at rest (no snapshot, or fully eased back); {@code false} if the bone was
+     *         changed this frame or is still easing back
      */
-    public static void updateCachedBoneRotation(
+    public static boolean updateCachedBoneRotation(
         AzBone bone,
-        AzBoneSnapshot saveSnapshot,
+        @Nullable AzBoneSnapshot saveSnapshot,
         double animTime,
         double resetTickLength
     ) {
         if (bone.hasRotationChanged()) {
-            return;
+            return false;
+        }
+
+        if (saveSnapshot == null) {
+            return true;
         }
 
         var initialSnapshot = bone.getInitialAzSnapshot();
-
-        if (saveSnapshot == null) {
-            return;
-        }
 
         if (saveSnapshot.isRotAnimInProgress()) {
             saveSnapshot.stopRotAnim(animTime);
         }
 
-        double percentageReset = Math.min(
-            (animTime - saveSnapshot.getLastResetRotationTick()) / resetTickLength,
-            1
-        );
+        var percentageReset = resetTickLength > 0
+            ? Math.min((animTime - saveSnapshot.getLastResetRotationTick()) / resetTickLength, 1)
+            : 1;
 
         bone.setRotX(
             (float) Interpolations.lerp(saveSnapshot.getRotX(), initialSnapshot.getRotX(), percentageReset)
@@ -148,7 +173,10 @@ public class AzCachedBoneUpdateUtil {
 
         if (percentageReset >= 1) {
             saveSnapshot.updateRotation(bone.getRotX(), bone.getRotY(), bone.getRotZ());
+            return true;
         }
+
+        return false;
     }
 
     /**
@@ -176,31 +204,33 @@ public class AzCachedBoneUpdateUtil {
     /**
      * {@link #updateCachedBoneScale(AzBone, Map, double, double)} with the bone's snapshot already looked up, so
      * per-frame callers can skip the by-name map lookup.
+     *
+     * @return {@code true} if the channel is at rest (no snapshot, or fully eased back); {@code false} if the bone was
+     *         changed this frame or is still easing back
      */
-    public static void updateCachedBoneScale(
+    public static boolean updateCachedBoneScale(
         AzBone bone,
-        AzBoneSnapshot saveSnapshot,
+        @Nullable AzBoneSnapshot saveSnapshot,
         double animTime,
         double resetTickLength
     ) {
         if (bone.hasScaleChanged()) {
-            return;
+            return false;
+        }
+
+        if (saveSnapshot == null) {
+            return true;
         }
 
         var initialSnapshot = bone.getInitialAzSnapshot();
-
-        if (saveSnapshot == null) {
-            return;
-        }
 
         if (saveSnapshot.isScaleAnimInProgress()) {
             saveSnapshot.stopScaleAnim(animTime);
         }
 
-        double percentageReset = Math.min(
-            (animTime - saveSnapshot.getLastResetScaleTick()) / resetTickLength,
-            1
-        );
+        var percentageReset = resetTickLength > 0
+            ? Math.min((animTime - saveSnapshot.getLastResetScaleTick()) / resetTickLength, 1)
+            : 1;
 
         bone.setScaleX(
             (float) Interpolations.lerp(saveSnapshot.getScaleX(), initialSnapshot.getScaleX(), percentageReset)
@@ -214,6 +244,9 @@ public class AzCachedBoneUpdateUtil {
 
         if (percentageReset >= 1) {
             saveSnapshot.updateScale(bone.getScaleX(), bone.getScaleY(), bone.getScaleZ());
+            return true;
         }
+
+        return false;
     }
 }

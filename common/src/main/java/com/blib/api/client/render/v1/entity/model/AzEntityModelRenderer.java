@@ -89,6 +89,13 @@ public class AzEntityModelRenderer<T extends Entity> extends AzModelRenderer<UUI
             return;
         }
 
+        // AzureLib 3.1.23 (ported Oct 17): a bone scaled to zero on every axis collapses itself and everything under it
+        // to a point, so skip the subtree instead of drawing degenerate geometry. While it is zero, its descendants'
+        // tracked matrices are not updated and per-bone render layers are not called for that subtree.
+        if (bone.getScaleX() == 0f && bone.getScaleY() == 0f && bone.getScaleZ() == 0f) {
+            return;
+        }
+
         var buffer = context.vertexConsumer();
         var bufferSource = context.multiBufferSource();
         var entity = context.animatable();

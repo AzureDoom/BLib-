@@ -2,6 +2,7 @@ package com.blib.internal.client.animation.track.state.impl;
 
 import com.blib.internal.client.animation.track.state.AzAnimationState;
 import com.blib.internal.client.animation.track.state.AzAnimationStateKind;
+import com.blib.internal.client.animation.track.state.AzTransitionResult;
 import com.blib.internal.client.animation.track.state.machine.AzAnimationTrackStateMachine;
 
 public final class AzAnimationTransitionState<T> extends AzAnimationState<T> {
@@ -33,7 +34,15 @@ public final class AzAnimationTransitionState<T> extends AzAnimationState<T> {
 
         if (hasFinishedTransitioning) {
             // If we've exceeded the amount of time we should be transitioning, then switch to play state.
-            stateMachine.play();
+            // AzureLib 3.1.22 (ported Oct 17): AND RUN THE PLAY STATE NOW. Returning here left this frame with no
+            // keyframes applied, so the bone cache eased every bone back to its bind pose and the model rendered in a
+            // T-pose for one frame - every time a transition finished, and always on the first frame of a track with a
+            // transition length of 0. Only on an APPLIED switch: if play() were ever refused the machine would still be
+            // in this state and update() would re-enter here forever.
+            if (stateMachine.play() instanceof AzTransitionResult.Applied) {
+                stateMachine.update();
+            }
+
             return;
         }
 

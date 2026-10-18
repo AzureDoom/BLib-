@@ -33,6 +33,14 @@ public class AzBoneCache {
 
     private int indexedVersion = -1;
 
+    /**
+     * AzureLib 3.1.23 (ported Oct 17) - {@code atRest[i]}: bone {@code i} has finished easing back to its bind pose on
+     * every channel and nothing has changed it since, so {@link #update} skips it until something marks it changed
+     * again. The cost of a frame then scales with the bones that are actually animated, not the whole model. Rebuilt
+     * (all false) with {@link #indexedSnapshots}, so a model switch or {@link #restoreState} re-checks every bone once.
+     */
+    private boolean[] atRest = new boolean[0];
+
     public AzBoneCache() {
         this.boneSnapshotsByName = new Object2ObjectOpenHashMap<>();
         setBakedModel(AzBakedModel.getDefault());
@@ -111,30 +119,58 @@ public class AzBoneCache {
         var animTime = timer.getAnimTime();
         var resetTickLength = config.boneResetTime();
 
-        // Updates the cached bone snapshots (only if they have changed).
+        // Ease bones nothing animated this frame back towards their bind pose, then clear their change markers.
         var bones = bakedModel.getAllBones();
         var snapshots = indexedSnapshots();
+        var rest = atRest;
 
         for (int i = 0, size = bones.size(); i < size; i++) {
             var bone = bones.get(i);
+            var changed = bone.hasRotationChanged() || bone.hasPositionChanged() || bone.hasScaleChanged();
+
+            // A settled bone that nothing touched since would only be set to the pose it already has. Every AzBone
+            // setter marks the bone changed, so anything that moves it (a track, setCustomAnimations, a render-time
+            // override) brings it back into this loop.
+            if (rest[i] && !changed) {
+                continue;
+            }
+
             var snapshot = snapshots[i];
-            AzCachedBoneUpdateUtil.updateCachedBoneRotation(bone, snapshot, animTime, resetTickLength);
-            AzCachedBoneUpdateUtil.updateCachedBonePosition(bone, snapshot, animTime, resetTickLength);
-            AzCachedBoneUpdateUtil.updateCachedBoneScale(bone, snapshot, animTime, resetTickLength);
+            var rotationSettled = AzCachedBoneUpdateUtil.updateCachedBoneRotation(
+                bone,
+                snapshot,
+                animTime,
+                resetTickLength
+            );
+            var positionSettled = AzCachedBoneUpdateUtil.updateCachedBonePosition(
+                bone,
+                snapshot,
+                animTime,
+                resetTickLength
+            );
+            var scaleSettled = AzCachedBoneUpdateUtil.updateCachedBoneScale(
+                bone,
+                snapshot,
+                animTime,
+                resetTickLength
+            );
+
+            rest[i] = rotationSettled && positionSettled && scaleSettled;
+            bone.resetStateChanges();
         }
 
-        resetBoneTransformationMarkers();
         // A new frame for the write markers on each bone snapshot.
         lastAnimatedFrame = currentFrame;
         currentFrame++;
     }
 
-    private void resetBoneTransformationMarkers() {
-        var bones = bakedModel.getAllBones();
-
-        for (int i = 0, size = bones.size(); i < size; i++) {
-            bones.get(i).resetStateChanges();
-        }
+    /**
+     * AzureLib 3.1.23 - forces the per-bone arrays to be rebuilt on the next {@link #update}. Call it after replacing
+     * or removing entries in {@link #getBoneSnapshotsByName()} directly; changing a snapshot's values does not need it.
+     * Every BLib path that swaps the model or the snapshot map already does this itself.
+     */
+    public void invalidateBoneArrays() {
+        snapshotsVersion++;
     }
 
     private void snapshot() {
@@ -152,18 +188,44 @@ public class AzBoneCache {
     private AzBoneSnapshot[] indexedSnapshots() {
         if (indexedFor != bakedModel || indexedVersion != snapshotsVersion) {
             var bones = bakedModel.getAllBones();
+
+            // ⚠ Unchanged index (same model object, same snapshot objects) - just accept the new version. Models with a
+            // re-render layer save/restore their state EVERY frame, which bumps the version every frame; without this
+            // they reallocated the index array each frame and reset every bone's rest flag.
+            if (indexedFor == bakedModel && sameSnapshots(bones)) {
+                indexedVersion = snapshotsVersion;
+                return indexedSnapshots;
+            }
+
             var snapshots = new AzBoneSnapshot[bones.size()];
 
             for (int i = 0; i < snapshots.length; i++) {
                 snapshots[i] = boneSnapshotsByName.get(bones.get(i).getName());
             }
 
+            atRest = new boolean[snapshots.length];
             indexedSnapshots = snapshots;
             indexedFor = bakedModel;
             indexedVersion = snapshotsVersion;
         }
 
         return indexedSnapshots;
+    }
+
+    private boolean sameSnapshots(java.util.List<AzBone> bones) {
+        var indexed = indexedSnapshots;
+
+        if (indexed.length != bones.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < indexed.length; i++) {
+            if (indexed[i] != boneSnapshotsByName.get(bones.get(i).getName())) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public AzBakedModel getBakedModel() {
@@ -176,8 +238,8 @@ public class AzBoneCache {
     }
 
     /**
-     * The bone snapshots by bone name. Treat as read-only: {@link #update} works from an index built off this map and
-     * won't see entries added or replaced from outside.
+     * The bone snapshots by bone name. {@link #update} works from an index built off this map: after adding, replacing
+     * or removing entries from outside, call {@link #invalidateBoneArrays()}.
      */
     public Map<String, AzBoneSnapshot> getBoneSnapshotsByName() {
         return boneSnapshotsByName;
