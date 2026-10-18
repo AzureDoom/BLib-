@@ -645,7 +645,9 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
     @Override
     public boolean supportsBidirectionalSearch() {
-        return !usesGroundBlockBreaking();
+        // ⚠ Leaps are forward-only moves (they need the step BEFORE the take-off to tell a run-up from a standstill),
+        // so a leaper searches one way, exactly as a block breaker already does.
+        return !usesGroundBlockBreaking() && !config.getLeapConfig().enabled();
     }
 
     @Override
@@ -690,7 +692,134 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
             count = appendDropOpeningNeighbors(node, previous, neighbors, count);
         }
 
+        if (config.getLeapConfig().enabled() && node.getPosture() == PathPosture.STANDING) {
+            count = appendLeapNeighbors(node, previous, neighbors, count);
+        }
+
         return count;
+    }
+
+    // ---------------------------------------------------------------- leaps (Oct 18)
+
+    /**
+     * Extra cost of a leap on top of its distance, so a walking route is always preferred when one exists and a leap is
+     * taken only to cross a gap that cannot be walked round cheaply.
+     */
+    private static final float LEAP_COST_MALUS = 3.0f;
+
+    /** Per block of distance, on top of the base distance cost: a long leap is a bigger commitment than a short one. */
+    private static final float LEAP_COST_PER_BLOCK = 0.5f;
+
+    private int appendLeapNeighbors(PathNode node, @Nullable PathNode previous, PathNode[] neighbors, int count) {
+        for (var offset : CARDINAL_OFFSETS) {
+            count = appendNeighbor(neighbors, count, previous, findLeapNeighbor(node, previous, offset[0], offset[1]));
+        }
+
+        return count;
+    }
+
+    /** How far BELOW the take-off a leap may land, at most. Deeper than this it is a drop into a pit, not a leap. */
+    private static final int LEAP_MAX_DROP = 3;
+
+    /**
+     * The landing of a leap straight across a gap from {@code from}, or null.
+     * <p>
+     * A gap is a run of columns with nowhere to stand within a step of the take-off height - so the first column ahead
+     * being walkable (level, a step up or a step down) means this is not a gap at all, and ordinary moves handle it.
+     * <p>
+     * ⚠⚠ TWO PASSES, LEDGE FIRST. Searching each column top-down as far as the mob may fall finds the PIT FLOOR under a
+     * gap, so the "leap" landed at the bottom of the pit and never looked at the ledge across it. Pass one lands only
+     * within a step of the take-off height (the ledge across); only when nothing in range qualifies does pass two allow
+     * a landing up to {@link #LEAP_MAX_DROP} lower. In each pass, a column whose ground lies below the band is gap.
+     * <p>
+     * Every column from take-off to landing must leave the body clear one block above the higher of the two - the arc
+     * of the jump - so a leap never goes through a wall or under a low ceiling. A straight run-up (the step before the
+     * take-off lies directly behind it) allows the running distance; otherwise the standing distance.
+     */
+    private @Nullable PathNode findLeapNeighbor(PathNode from, @Nullable PathNode previous, int dx, int dz) {
+        var fromY = from.getY();
+        var firstX = from.getX() + dx;
+        var firstZ = from.getZ() + dz;
+
+        // Not a gap: something walkable right ahead.
+        for (var y = fromY - 1; y <= fromY + 1; y++) {
+            if (hasNodeSupport(firstX, y, firstZ) && hasNodeClearance(firstX, y, firstZ, PathPosture.STANDING)) {
+                return null;
+            }
+        }
+
+        var leap = config.getLeapConfig();
+        var runUp = previous != null
+            && previous.getX() == from.getX() - dx
+            && previous.getZ() == from.getZ() - dz
+            && Math.abs(previous.getY() - fromY) <= 1;
+        var maxDistance = (runUp ? leap.runningGap() : leap.standingGap()) + 1;
+        var deepest = Math.max(fromY - LEAP_MAX_DROP, fromY - Math.max(1, config.getMaxFallDistance()));
+
+        var ledge = findLeapLanding(from, previous, dx, dz, maxDistance, fromY - 1, fromY + leap.maxRise());
+
+        if (ledge != null || deepest > fromY - 2) {
+            return ledge;
+        }
+
+        return findLeapLanding(from, previous, dx, dz, maxDistance, deepest, fromY - 2);
+    }
+
+    /** One pass of {@link #findLeapNeighbor}: the first column within {@code [lowY, highY]} that can be stood on. */
+    private @Nullable PathNode findLeapLanding(
+        PathNode from,
+        @Nullable PathNode previous,
+        int dx,
+        int dz,
+        int maxDistance,
+        int lowY,
+        int highY
+    ) {
+        var fromY = from.getY();
+
+        for (var distance = 2; distance <= maxDistance; distance++) {
+            var x = from.getX() + dx * distance;
+            var z = from.getZ() + dz * distance;
+            PathNode landing = null;
+            var landingY = Integer.MIN_VALUE;
+
+            for (var y = highY; y >= lowY; y--) {
+                if (hasNodeSupport(x, y, z)) {
+                    landing = tryCreateGroundNode(x, y, z, PathPosture.STANDING);
+                    landingY = y;
+                    break;
+                }
+            }
+
+            if (landingY == Integer.MIN_VALUE) {
+                continue; // nothing to stand on in the band: still gap
+            }
+
+            if (landing == null) {
+                return null; // ground in the band but no room to stand there: blocked, do not leap past it
+            }
+
+            // The arc: every column from take-off to landing clear one block above the higher end.
+            var arcFeetY = Math.max(fromY, landingY) + 1;
+
+            for (var step = 0; step <= distance; step++) {
+                if (!hasNodeClearance(from.getX() + dx * step, arcFeetY, from.getZ() + dz * step, PathPosture.STANDING)) {
+                    return null;
+                }
+            }
+
+            if (isParentNode(previous, x, landingY, z, TerrainType.GROUND, PathPosture.STANDING)) {
+                markFeatureUsed(PathfindingFeature.PARENT_EDGE_PRUNING);
+                return null;
+            }
+
+            landing.setPendingTraversal(landing.getPendingCostMalus() + LEAP_COST_MALUS + LEAP_COST_PER_BLOCK * distance);
+            landing.setPendingLeap(nodeCenterX(from.getX()), fromY, nodeCenterZ(from.getZ()));
+
+            return landing;
+        }
+
+        return null;
     }
 
     private int getWaterNeighbors(PathNode node, @Nullable PathNode previous, PathNode[] neighbors) {
@@ -1244,6 +1373,20 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
                     );
                 } else {
                     finishEdgeAttempt(false);
+
+                    // Oct 18: a blocked single step up can be DUG, so a mob that breaks blocks tunnels a staircase.
+                    if (stepUp == 1) {
+                        var dug = tryCreateStepUpBlockBreakingGroundNode(from, x, y, z, dx, dz);
+
+                        if (dug != null) {
+                            count = appendNeighbor(
+                                neighbors,
+                                count,
+                                previous,
+                                markMovementFeatureUsed(dug, dx, dz, PathfindingFeature.STEP_UP)
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -2426,6 +2569,63 @@ public final class UnifiedTerrainEvaluator implements TerrainEvaluator {
 
         var node = getOrCreateGroundNode(x, y, z, posture);
         node.setPendingTraversal(candidate.costMalus(), candidate.plan());
+        markFeatureUsed(PathfindingFeature.BLOCK_BREAKING);
+
+        return node;
+    }
+
+    /**
+     * Oct 18 - A STEP UP THAT HAS TO BE DUG. Until now the planner only ever broke blocks on a LEVEL move
+     * ({@code tryCreateSameLevelBlockBreakingGroundNode} refuses any change of height), so a mob that breaks blocks
+     * could tunnel sideways but never upward: a staircase into a slope was impossible to plan, and a target on a ledge
+     * was out of reach. Here the step's own block stays as the floor; what is cleared is the body's space at the higher
+     * cell AND the headroom above the current cell, which the body rises through. Every block passes the same break
+     * rules as a level dig, and the two together must fit {@code maxBlocksPerEdge}.
+     * <p>
+     * ⚠ The break-candidate planner answers null both for "nothing in the way" and for "refused" (unbreakable, liquid,
+     * over the limit), so each half checks real clearance before reading null as "nothing to break".
+     */
+    private @Nullable PathNode tryCreateStepUpBlockBreakingGroundNode(PathNode from, int x, int y, int z, int dx, int dz) {
+        if (
+            currentLevel == null || from.getTerrainType() != TerrainType.GROUND || y != from.getY() + 1
+                || !isCardinalHorizontalMove(dx, dz) || !usesGroundBlockBreaking() || !config.isStepUpBlockBreaking()
+                || !hasNodeSupport(x, y, z)
+        ) {
+            return null;
+        }
+
+        var posture = PathPosture.STANDING;
+        var body = memoizedGroundBlockBreakCandidate(x, y, z, posture);
+
+        if (body == null && !hasNodeClearance(x, y, z, posture)) {
+            return null; // something there that may not be broken
+        }
+
+        var headroom = memoizedGroundBlockBreakCandidate(from.getX(), y, from.getZ(), posture);
+
+        if (headroom == null && !hasNodeClearance(from.getX(), y, from.getZ(), posture)) {
+            return null;
+        }
+
+        var blocks = new java.util.LinkedHashSet<BlockPos>();
+        var costMalus = 0.0f;
+
+        if (body != null) {
+            blocks.addAll(body.plan().blocks());
+            costMalus += body.costMalus();
+        }
+
+        if (headroom != null) {
+            blocks.addAll(headroom.plan().blocks());
+            costMalus += headroom.costMalus();
+        }
+
+        if (blocks.isEmpty() || blocks.size() > config.getBlockBreakingConfig().maxBlocksPerEdge()) {
+            return null;
+        }
+
+        var node = getOrCreateGroundNode(x, y, z, posture);
+        node.setPendingTraversal(node.getPendingCostMalus() + costMalus, new PathBlockBreakPlan(new ArrayList<>(blocks)));
         markFeatureUsed(PathfindingFeature.BLOCK_BREAKING);
 
         return node;

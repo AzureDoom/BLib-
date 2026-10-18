@@ -50,6 +50,23 @@ public final class PathNode implements Comparable<PathNode> {
 
     private double pendingDropEntryZ;
 
+    /** Oct 18: this step is LEAPT to across a gap, from the take-off point below. See PathLeapConfig. */
+    private boolean leap;
+
+    private double leapTakeoffX;
+
+    private double leapTakeoffY;
+
+    private double leapTakeoffZ;
+
+    private boolean hasPendingLeap;
+
+    private double pendingLeapTakeoffX;
+
+    private double pendingLeapTakeoffY;
+
+    private double pendingLeapTakeoffZ;
+
     private boolean closed;
 
     private boolean hasStableGround;
@@ -160,6 +177,9 @@ public final class PathNode implements Comparable<PathNode> {
         this.pendingCostMalus = costMalus;
         this.pendingBlockBreakPlan = blockBreakPlan != null ? blockBreakPlan : PathBlockBreakPlan.EMPTY;
         this.hasPendingDropEntryWaypoint = false;
+        // ⚠ A fresh traversal is never a leap unless the leap move sets it again after this - the same node is reached
+        // by other edges, and one of them must not inherit another's leap.
+        this.hasPendingLeap = false;
     }
 
     public void commitPendingTraversal() {
@@ -177,6 +197,16 @@ public final class PathNode implements Comparable<PathNode> {
 
         this.hasPendingDropEntryWaypoint = false;
         this.pendingBlockBreakPlan = PathBlockBreakPlan.EMPTY;
+
+        this.leap = hasPendingLeap;
+
+        if (hasPendingLeap) {
+            this.leapTakeoffX = pendingLeapTakeoffX;
+            this.leapTakeoffY = pendingLeapTakeoffY;
+            this.leapTakeoffZ = pendingLeapTakeoffZ;
+        }
+
+        this.hasPendingLeap = false;
     }
 
     public PathNode getParent() {
@@ -201,6 +231,32 @@ public final class PathNode implements Comparable<PathNode> {
 
     public double getDropEntryZ() {
         return dropEntryZ;
+    }
+
+    /** {@return whether this step is reached by leaping across a gap} */
+    public boolean isLeap() {
+        return leap;
+    }
+
+    /** {@return the take-off point of the leap that reaches this step: the centre of the cell it leaps from} */
+    public double getLeapTakeoffX() {
+        return leapTakeoffX;
+    }
+
+    public double getLeapTakeoffY() {
+        return leapTakeoffY;
+    }
+
+    public double getLeapTakeoffZ() {
+        return leapTakeoffZ;
+    }
+
+    /** Marks the edge being considered as a leap from this take-off point; kept only if the edge wins. */
+    public void setPendingLeap(double x, double y, double z) {
+        this.hasPendingLeap = true;
+        this.pendingLeapTakeoffX = x;
+        this.pendingLeapTakeoffY = y;
+        this.pendingLeapTakeoffZ = z;
     }
 
     public void setPendingDropEntryWaypoint(double x, double y, double z) {
@@ -299,6 +355,8 @@ public final class PathNode implements Comparable<PathNode> {
         this.parent = null;
         this.hasDropEntryWaypoint = false;
         this.hasPendingDropEntryWaypoint = false;
+        this.leap = false;
+        this.hasPendingLeap = false;
         this.closed = false;
         this.hasStableGround = false;
         this.stableGroundXSize = 0;

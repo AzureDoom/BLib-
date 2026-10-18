@@ -50,6 +50,10 @@ public final class TerrainEvaluatorConfig {
 
     private final PathBlockBreakingConfig blockBreakingConfig;
 
+    private final PathLeapConfig leapConfig;
+
+    private final boolean stepUpBlockBreaking;
+
     private final float wallAdjacencyMalus;
 
     private TerrainEvaluatorConfig(
@@ -65,6 +69,8 @@ public final class TerrainEvaluatorConfig {
         PathCrawlConfig crawlConfig,
         PathWaterConfig waterConfig,
         PathBlockBreakingConfig blockBreakingConfig,
+        PathLeapConfig leapConfig,
+        boolean stepUpBlockBreaking,
         float wallAdjacencyMalus
     ) {
         this.terrainCostSuppliers = Map.copyOf(terrainCostSuppliers);
@@ -79,6 +85,8 @@ public final class TerrainEvaluatorConfig {
         this.crawlConfig = crawlConfig != null ? crawlConfig : PathCrawlConfig.DISABLED;
         this.waterConfig = waterConfig != null ? waterConfig : PathWaterConfig.DISABLED;
         this.blockBreakingConfig = blockBreakingConfig != null ? blockBreakingConfig : PathBlockBreakingConfig.DISABLED;
+        this.leapConfig = leapConfig != null ? leapConfig : PathLeapConfig.DISABLED;
+        this.stepUpBlockBreaking = stepUpBlockBreaking;
         this.wallAdjacencyMalus = Math.max(0.0f, wallAdjacencyMalus);
     }
 
@@ -152,6 +160,19 @@ public final class TerrainEvaluatorConfig {
         return blockBreakingConfig;
     }
 
+    /** {@return how far this mob may leap across a gap} {@link PathLeapConfig#DISABLED} unless the mob set one. */
+    public PathLeapConfig getLeapConfig() {
+        return leapConfig;
+    }
+
+    /**
+     * {@return whether a blocked one-block step UP may be dug} Off unless the mob asks: a mob that breaks blocks has
+     * only ever dug level moves, and turning this on for every breaker would have it carving steps into hillsides.
+     */
+    public boolean isStepUpBlockBreaking() {
+        return stepUpBlockBreaking;
+    }
+
     public static final class Builder {
 
         private final Map<TerrainType, Supplier<Float>> terrainCostSuppliers;
@@ -177,6 +198,10 @@ public final class TerrainEvaluatorConfig {
         private PathWaterConfig waterConfig;
 
         private PathBlockBreakingConfig blockBreakingConfig;
+
+        private PathLeapConfig leapConfig = PathLeapConfig.DISABLED;
+
+        private boolean stepUpBlockBreaking;
 
         private float wallAdjacencyMalus = DEFAULT_WALL_ADJACENCY_MALUS;
 
@@ -287,6 +312,21 @@ public final class TerrainEvaluatorConfig {
          * {@value #DEFAULT_WALL_ADJACENCY_MALUS}; pass 0 to disable the center-of-walkway bias entirely. Negative
          * values are clamped to 0.
          */
+        /** Lets the pathfinder plan leaps across gaps. See {@link PathLeapConfig}. */
+        public Builder withLeapConfig(PathLeapConfig leapConfig) {
+            this.leapConfig = leapConfig != null ? leapConfig : PathLeapConfig.DISABLED;
+            return this;
+        }
+
+        /**
+         * Lets a mob that breaks blocks DIG a blocked one-block step up - its body's space at the higher cell plus the
+         * headroom it rises through - so it can tunnel a staircase. Needs block breaking enabled to do anything.
+         */
+        public Builder withStepUpBlockBreaking(boolean stepUpBlockBreaking) {
+            this.stepUpBlockBreaking = stepUpBlockBreaking;
+            return this;
+        }
+
         public Builder withWallAdjacencyMalus(float wallAdjacencyMalus) {
             this.wallAdjacencyMalus = wallAdjacencyMalus;
             return this;
@@ -310,6 +350,8 @@ public final class TerrainEvaluatorConfig {
                 crawlConfig,
                 waterConfig,
                 blockBreakingConfig,
+                leapConfig,
+                stepUpBlockBreaking,
                 wallAdjacencyMalus
             );
         }

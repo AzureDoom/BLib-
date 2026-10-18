@@ -83,6 +83,9 @@ public final class PathMovementController {
             }
         }
 
+        // Oct 18: a planned leap across a gap - launched here, at the take-off. See PathLeap.
+        PathLeap.tryLaunch(actor, navigator);
+
         WaterPathMovementController.apply(actor, navigator, waypointCenter, resolvedSpeedMultiplier);
     }
 

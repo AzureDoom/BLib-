@@ -449,7 +449,8 @@ final class PathNavigationWaypointFollower {
     private boolean isSmoothableNodeRange(int fromIndex, int toIndex) {
         var from = currentPath().getNode(fromIndex);
 
-        if (from.hasDropEntryWaypoint()) {
+        // Oct 18: a leap is never smoothed away either - straight-lining take-off to landing walks off the edge.
+        if (from.hasDropEntryWaypoint() || from.isLeap()) {
             return false;
         }
 
@@ -469,6 +470,7 @@ final class PathNavigationWaypointFollower {
 
             if (
                 node.hasDropEntryWaypoint()
+                    || node.isLeap()
                     || node.getY() != y
                     || node.getTerrainType() != TerrainType.GROUND
                     || node.getPosture() != posture
@@ -495,6 +497,7 @@ final class PathNavigationWaypointFollower {
 
             if (
                 node.hasDropEntryWaypoint()
+                    || node.isLeap()
                     || node.getTerrainType() != TerrainType.WATER
                     || node.getPosture() != posture
             ) {
@@ -588,7 +591,10 @@ final class PathNavigationWaypointFollower {
         var previousNode = path.getNode(index - 1);
         var currentNode = path.getCurrentNode();
 
-        if (previousNode.hasDropEntryWaypoint() || currentNode.hasDropEntryWaypoint()) {
+        if (
+            previousNode.hasDropEntryWaypoint() || currentNode.hasDropEntryWaypoint()
+                || previousNode.isLeap() || currentNode.isLeap()
+        ) {
             return false;
         }
 
@@ -726,7 +732,7 @@ final class PathNavigationWaypointFollower {
     }
 
     private boolean isDescendingStepEdge(PathNode previousNode, PathNode node) {
-        if (previousNode.hasDropEntryWaypoint() || node.hasDropEntryWaypoint()) {
+        if (previousNode.hasDropEntryWaypoint() || node.hasDropEntryWaypoint() || node.isLeap()) {
             return false;
         }
 
@@ -769,7 +775,11 @@ final class PathNavigationWaypointFollower {
         var currentNode = currentPath().getCurrentNode();
         var nextNode = currentPath().getNode(nextIndex);
 
-        if (currentNode.hasDropEntryWaypoint() || nextNode.hasDropEntryWaypoint()) {
+        // Oct 18: never skip ahead onto or past a leap - the take-off has to be reached first.
+        if (
+            currentNode.hasDropEntryWaypoint() || nextNode.hasDropEntryWaypoint()
+                || currentNode.isLeap() || nextNode.isLeap()
+        ) {
             return false;
         }
 
