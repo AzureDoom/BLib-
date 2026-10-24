@@ -28,8 +28,17 @@ public final class BlockAccessor {
 
     private static final BlockState AIR = Blocks.AIR.defaultBlockState();
 
+    /**
+     * What a synchronous search sees in a chunk that is not loaded: a solid wall. Nothing can stand in it or walk
+     * through it, so the search simply routes around - or reports no path - instead of loading the chunk.
+     */
+    private static final BlockState UNLOADED = Blocks.BARRIER.defaultBlockState();
+
     // --- Chunk cache (spatial locality, direct section access) ---
     private final Long2ObjectOpenHashMap<ChunkAccess> chunkMap = new Long2ObjectOpenHashMap<>();
+
+    /** Chunks found NOT loaded during this search, so the lookup is made once per chunk rather than once per block. */
+    private final it.unimi.dsi.fastutil.longs.LongOpenHashSet unloadedChunks = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
 
     private LevelChunkSection @Nullable [] cachedSections;
 
@@ -94,6 +103,7 @@ public final class BlockAccessor {
      */
     public void releaseChunks() {
         chunkMap.clear();
+        unloadedChunks.clear();
         cachedSections = null;
         cachedChunkX = Integer.MIN_VALUE;
         cachedChunkZ = Integer.MIN_VALUE;
@@ -113,7 +123,15 @@ public final class BlockAccessor {
 
             if (chunk == null) {
                 if (level != null) {
-                    chunk = level.getChunk(cx, cz);
+                    // ⚠ Oct 23 - never load or generate a chunk mid-search (see loadedChunkOrNull).
+                    if (unloadedChunks.contains(key)) {
+                        return UNLOADED;
+                    }
+                    chunk = loadedChunkOrNull(level, cx, cz);
+                    if (chunk == null) {
+                        unloadedChunks.add(key);
+                        return UNLOADED;
+                    }
                     chunkMap.put(key, chunk);
                 } else {
                     return AIR;
@@ -139,6 +157,30 @@ public final class BlockAccessor {
         }
 
         return section.getBlockState(x & 15, y & 15, z & 15);
+    }
+
+    /**
+     * The chunk at the given chunk coordinates if it is ALREADY loaded, else null. Never loads, never generates.
+     * <p>
+     * 🚨 Oct 23 - [stated] "walk ... every single costly possible path". A path search is the one piece of mob AI that
+     * reads blocks a long way from where the mob stands, so it is the piece most likely to wander off the edge of the
+     * loaded world. Every read here used the plain {@code getChunk(x, z)}, which LOADS a missing chunk and GENERATES
+     * one that does not exist yet, synchronously, on the server thread - and a chunk loaded that way is dropped again
+     * on the next tick, so the next search loads it all over again. With C2ME's chunk system (which reroutes that work
+     * through its own scheduler) and a heavy worldgen pack, each one is a long wait, and a search touching several is
+     * a multi-second freeze. Unloaded now means unpathable, which is also simply true: a mob cannot walk into a chunk
+     * the server is not running.
+     * </p>
+     * <p>
+     * {@code getChunkNow} is the server's own non-blocking lookup; anything that is not a full Level (a region view,
+     * a test reader) goes through the non-loading {@code getChunk(..., false)} overload instead.
+     * </p>
+     */
+    public static @Nullable ChunkAccess loadedChunkOrNull(LevelReader level, int chunkX, int chunkZ) {
+        if (level instanceof net.minecraft.world.level.Level fullLevel) {
+            return fullLevel.getChunkSource().getChunkNow(chunkX, chunkZ);
+        }
+        return level.getChunk(chunkX, chunkZ, net.minecraft.world.level.chunk.status.ChunkStatus.FULL, false);
     }
 
     public boolean isSolid(BlockState state) {
@@ -195,6 +237,7 @@ public final class BlockAccessor {
         cachedChunkX = Integer.MIN_VALUE;
         cachedChunkZ = Integer.MIN_VALUE;
         chunkMap.clear();
+        unloadedChunks.clear();
 
         // Initialize property cache once (block state properties never change at runtime).
         if (solidCache == null) {

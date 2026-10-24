@@ -316,10 +316,15 @@ public final class BLibPathFinder {
 
         for (int cx = minCX - asyncChunkMargin; cx <= maxCX + asyncChunkMargin; cx++) {
             for (int cz = minCZ - asyncChunkMargin; cz <= maxCZ + asyncChunkMargin; cz++) {
-                // \u26a0 STILL BLOCKING, BUT NOW BOUNDED. A non-generating getChunkNow would be better again, but it
-                // returns null for a resident-but-unloaded chunk and the evaluator has no null path - that is a
-                // larger change than a cap, and the cap alone removes the freeze.
-                unifiedEvaluator.preloadChunk(cx, cz, level.getChunk(cx, cz));
+                // ⚠ Oct 23 - NOT BLOCKING ANY MORE. Only chunks that are already loaded are snapshotted; a chunk that
+                // is not is simply left out, and the background search reads it as empty air - no floor, nothing to
+                // stand on, so it is not walkable. The old blocking getChunk loaded or GENERATED every missing chunk
+                // in the box on the server thread before the search could even start (see
+                // BlockAccessor.loadedChunkOrNull for why that froze C2ME packs).
+                var chunk = com.blib.api.common.pathfinding.v1.evaluator.BlockAccessor.loadedChunkOrNull(level, cx, cz);
+                if (chunk != null) {
+                    unifiedEvaluator.preloadChunk(cx, cz, chunk);
+                }
             }
         }
 

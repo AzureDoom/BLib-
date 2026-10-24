@@ -51,7 +51,28 @@ public final class TerrainClassificationCache {
         return section.get(localX, localY, localZ);
     }
 
+    /**
+     * What a section in an UNLOADED chunk reports: populated, and passable nowhere. Built once, by classifying every
+     * cell as impassable, so it never reads the world. Shared and never stored in {@link #sections}: the real section
+     * is classified the first time it is asked for after its chunk loads.
+     */
+    private static final TerrainCacheSection UNLOADED_SECTION = createUnloadedSection();
+
+    private static TerrainCacheSection createUnloadedSection() {
+        var section = new TerrainCacheSection();
+        section.populate(null, 0, 0, 0, (level, pos) -> null);
+        return section;
+    }
+
     private TerrainCacheSection getOrPopulateSection(LevelReader level, int sectionX, int sectionY, int sectionZ) {
+        // 🚨 Oct 23 - CLASSIFYING A SECTION READS ALL 4096 OF ITS BLOCKS FROM THE LEVEL, and for a chunk that is not
+        // loaded every one of those reads loaded - or generated - the chunk synchronously. The corridor search and the
+        // area pre-population both reach well past where a mob stands. Unloaded now reads as solid; the section is
+        // classified for real once its chunk is loaded. hasChunk never loads anything.
+        if (level != null && !level.hasChunk(sectionX, sectionZ)) {
+            return UNLOADED_SECTION;
+        }
+
         var key = packSectionKey(sectionX, sectionY, sectionZ);
         var section = sections.computeIfAbsent(key, (long $) -> new TerrainCacheSection());
 

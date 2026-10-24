@@ -152,6 +152,14 @@ final class PathNavigationTargetComponent implements PathNavigationAnchorResolve
             return rawTarget;
         }
 
+        // ⚠ Oct 23 - A TARGET IN AN UNLOADED CHUNK IS NOT PROJECTED. Projection scans down the target's column and in
+        // rings around it, and every one of those block reads loaded (or generated) the chunk - then the chunk was
+        // dropped and the next re-plan, a few ticks later, loaded it again. The search itself now treats unloaded
+        // ground as solid, so the raw target is passed on and the mob heads toward it as far as the loaded world goes.
+        if (!level.hasChunkAt(rawTarget)) {
+            return rawTarget;
+        }
+
         if (!shouldProjectRawTarget(rawTarget)) {
             lastProjectionRawTargetPos = rawTarget;
             lastProjectionTargetPos = rawTarget;
@@ -268,6 +276,10 @@ final class PathNavigationTargetComponent implements PathNavigationAnchorResolve
     }
 
     private boolean isProjectionTargetCandidate(BlockPos candidate) {
+        // Rings around a loaded target can still reach into an unloaded neighbour; those cells are never candidates.
+        if (!level.hasChunkAt(candidate)) {
+            return false;
+        }
         return isGroundProjectionTarget(candidate) || isWaterProjectionTarget(candidate);
     }
 

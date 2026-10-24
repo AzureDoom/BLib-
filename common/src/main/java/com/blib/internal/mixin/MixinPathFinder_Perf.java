@@ -63,6 +63,12 @@ public abstract class MixinPathFinder_Perf {
         float searchDepthMultiplier,
         CallbackInfoReturnable<Path> cir
     ) {
+        // Oct 23 - same rule as the block entity timer: never throw from the profiler. Another mod calling vanilla's
+        // path finder without a mob would have had its search charged to a null entity.
+        if (mob == null) {
+            blib$perfSearchStartNanos = 0L;
+            return;
+        }
         if (BLibPerfProfiler.isActive() && blib$perfSearchStartNanos != 0L) {
             var path = cir.getReturnValue();
             BLibPerfProfiler.recordVanillaPathSearch(

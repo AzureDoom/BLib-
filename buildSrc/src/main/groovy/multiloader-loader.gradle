@@ -63,3 +63,24 @@ afterEvaluate {
         }
     }
 }
+
+// Oct 23 - [stated] the jars should read "blib-resurrection-..." like the avp mods, e.g.
+// build/libs/blib-resurrection-neoforge-1.21.1-0.3.11ac-fork.jar
+//
+// Only the jar FILE NAMES change. base.archivesName is deliberately left alone: it is the Maven artifactId the avp
+// repos resolve BLib by (com.blib:blib-neoforge-1.21.1 and so on), the artifactId of the "loader" publication above,
+// and the capabilities the common module publishes - all exactly as before. Maven Local stores the published jar
+// under the artifactId, not the file name, so local builds of the avp mods keep finding BLib. The common module's own
+// jar is not renamed either.
+//
+// Covers every jar task in the loader modules (Fabric's remapJar, the plain jar, the source jars). Change the word
+// with release_name_tag in gradle.properties.
+def releaseNameTag = (project.findProperty('release_name_tag') ?: 'resurrection').toString()
+
+// ⚠ org.gradle.jvm.tasks.Jar, NOT the script's default "Jar" (org.gradle.api.tasks.bundling.Jar). Fabric Loom's
+// remapJar and remapSourcesJar extend org.gradle.jvm.tasks.Jar directly, so a plain withType(Jar) matched NeoForge's
+// jar and Fabric's dev jar but skipped the finished Fabric jar - the Fabric file kept its old name. The jvm type is the
+// parent of both, so this covers every jar task on both loaders.
+tasks.withType(org.gradle.jvm.tasks.Jar).configureEach {
+    archiveBaseName = "${mod_id}-${releaseNameTag}-${project.name}-${minecraft_version}"
+}

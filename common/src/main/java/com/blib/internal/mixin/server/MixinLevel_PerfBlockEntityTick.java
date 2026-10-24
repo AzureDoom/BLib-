@@ -45,7 +45,18 @@ public abstract class MixinLevel_PerfBlockEntityTick {
         try {
             original.call(ticker);
         } finally {
-            BLibPerfProfiler.recordBlockEntity(ticker.getType(), ticker.getPos().asLong(), System.nanoTime() - start);
+            // 🚨 Oct 23 - CRASHED A TESTER'S WORLD while a /blib perf session ran: "Cannot invoke BlockPos.asLong()
+            // because the return value of TickingBlockEntity.getPos() is null". Vanilla's tickers always have a
+            // position, but other mods' tickers (and wrappers around a removed block entity) can return null - the
+            // ticker interface makes no promise. The profiler must never be the thing that brings a server down, so
+            // a ticker with no position or name is still timed, under a stand-in, instead of throwing.
+            var pos = ticker.getPos();
+            var type = ticker.getType();
+            BLibPerfProfiler.recordBlockEntity(
+                type != null ? type : "<unnamed ticker>",
+                pos != null ? pos.asLong() : 0L,
+                System.nanoTime() - start
+            );
         }
     }
 }
