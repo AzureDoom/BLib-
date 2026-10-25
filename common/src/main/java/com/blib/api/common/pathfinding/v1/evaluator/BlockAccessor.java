@@ -167,13 +167,13 @@ public final class BlockAccessor {
      * loaded world. Every read here used the plain {@code getChunk(x, z)}, which LOADS a missing chunk and GENERATES
      * one that does not exist yet, synchronously, on the server thread - and a chunk loaded that way is dropped again
      * on the next tick, so the next search loads it all over again. With C2ME's chunk system (which reroutes that work
-     * through its own scheduler) and a heavy worldgen pack, each one is a long wait, and a search touching several is
-     * a multi-second freeze. Unloaded now means unpathable, which is also simply true: a mob cannot walk into a chunk
-     * the server is not running.
+     * through its own scheduler) and a heavy worldgen pack, each one is a long wait, and a search touching several is a
+     * multi-second freeze. Unloaded now means unpathable, which is also simply true: a mob cannot walk into a chunk the
+     * server is not running.
      * </p>
      * <p>
-     * {@code getChunkNow} is the server's own non-blocking lookup; anything that is not a full Level (a region view,
-     * a test reader) goes through the non-loading {@code getChunk(..., false)} overload instead.
+     * {@code getChunkNow} is the server's own non-blocking lookup; anything that is not a full Level (a region view, a
+     * test reader) goes through the non-loading {@code getChunk(..., false)} overload instead.
      * </p>
      */
     public static @Nullable ChunkAccess loadedChunkOrNull(LevelReader level, int chunkX, int chunkZ) {

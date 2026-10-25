@@ -82,6 +82,14 @@ dependencies {
     compileOnly "maven.modrinth:8BmcQJ2H:Grwn5rUB"
 
     localRuntime "dev.architectury:architectury-neoforge:${project.architectury_version}"
+
+    // Oct 24 - BLib's recipe-viewer plugins (BLibViewers): REI's NeoForge plugin annotation and EMI's API. Compile only -
+    // nothing is bundled, and the plugin classes are only loaded when that viewer is installed.
+    compileOnly "me.shedaniel:RoughlyEnoughItems-neoforge:${rei_version}"
+    compileOnly "dev.emi:emi-neoforge:${emi_version}"
+    // ⚠ The JEI plugin lives in COMMON, and this module compiles common's sources itself - so JEI's API must be on THIS
+    // classpath too, exactly as common has it, or :neoforge:compileJava cannot see mezz.jei at all.
+    compileOnly "mezz.jei:jei-${minecraft_version}-neoforge-api:${jei_version}"
     localRuntime "me.shedaniel.cloth:cloth-config-neoforge:${project.cloth_version}"
 
     // Thanks to Rearth from Oritech for this little trick. :)

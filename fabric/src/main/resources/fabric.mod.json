@@ -23,8 +23,15 @@
 		"fabric-datagen": [
 			"com.blib.fabric.internal.data.BLibDataGenerator"
 		],
-		"rei_client": [],
-		"jei_mod_plugin": []
+		"rei_client": [
+			"com.blib.internal.client.viewer.rei.BLibReiPlugin"
+		],
+		"jei_mod_plugin": [
+			"com.blib.internal.client.viewer.jei.BLibJeiPlugin"
+		],
+		"emi": [
+			"com.blib.fabric.client.viewer.BLibEmiPlugin"
+		]
 	},
 	"mixins": [
 		"${mod_id}.mixins.json",

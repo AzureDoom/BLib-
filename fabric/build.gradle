@@ -68,6 +68,17 @@ dependencies {
     modApi "dev.architectury:architectury-fabric:${project.architectury_version}"
     modApi "me.shedaniel.cloth:cloth-config-fabric:${project.cloth_version}"
 
+    // Oct 24 - BLib's EMI plugin (BLibViewers). Compile only; loaded only when EMI is installed.
+    modCompileOnly "dev.emi:emi-fabric:${emi_version}"
+    // ⚠ The JEI and REI plugins live in COMMON, and this module compiles common's sources itself - so both APIs must be
+    // on THIS classpath too (Fabric flavours, the same coordinates avp_human's Fabric build already uses). Compile only;
+    // they load only when that viewer is installed (the jei_mod_plugin / rei_client entrypoints).
+    modCompileOnly "mezz.jei:jei-${minecraft_version}-fabric:${jei_version}"
+    modCompileOnly "me.shedaniel:RoughlyEnoughItems-api-fabric:${rei_version}"
+    modCompileOnly "me.shedaniel:RoughlyEnoughItems-fabric:${rei_version}"
+    // me.shedaniel.math.Rectangle is not in REI's api jar - it is cloth basic-math, which compile-only does not pull in.
+    compileOnly "me.shedaniel.cloth:basic-math:0.6.1"
+
     compileOnly "maven.modrinth:shoulder-surfing-reloaded:1.21.1-4.11.0+fabric"
     compileOnly "maven.modrinth:xaeros-world-map:neoforge-1.21.1-1.40.11"
     // GeckoLib, compile-only, for AzForeignArmor (armor from GeckoLib mods on Az entities). Referenced only inside a
